@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: trading212-dashboard
+    env: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: TRADING212_API_KEY
+        sync: false
+      - key: TRADING212_SECRET_KEY
+        sync: false
+      - key: TRADING212_ENV
+        value: live
+      - key: PUBLIC_DASHBOARD
+        value: "true"
+      - key: SHARE_TOKEN
+        sync: false
+      - key: REFRESH_MS
+        value: "5000"
+      - key: HOST
+        value: 0.0.0.0
