@@ -151,15 +151,15 @@ function renderPortfolio() {
   const currency = totals.currencyCode || cash?.currencyCode || "GBP";
   document.body.classList.add("connected");
   el.totalValue.textContent = formatMoney(totals.marketValue, currency);
-  el.todayChange.textContent = formatMoney(totals.dayChange, currency);
+  el.todayChange.textContent = formatSignedMoney(totals.dayChange, currency);
   el.todayChange.className = totals.dayChange >= 0 ? "gain" : "loss";
-  el.todayPercent.textContent = `${formatNumber(totals.dayChangePercent)}%`;
+  el.todayPercent.textContent = formatSignedPercent(totals.dayChangePercent);
   el.todayPercent.className = totals.dayChange >= 0 ? "gain" : "loss";
-  el.totalGain.textContent = formatMoney(totals.gainLoss, currency);
+  el.totalGain.textContent = formatSignedMoney(totals.gainLoss, currency);
   el.totalGain.className = totals.gainLoss >= 0 ? "gain" : "loss";
-  el.totalGainUsd.textContent = totals.gainLossUsd ? formatMoney(totals.gainLossUsd, "USD") : "--";
+  el.totalGainUsd.textContent = totals.gainLossUsd ? formatSignedMoney(totals.gainLossUsd, "USD") : "--";
   el.totalGainUsd.className = totals.gainLoss >= 0 ? "gain" : "loss";
-  el.totalPercent.textContent = `${formatNumber(totals.gainLossPercent)}%`;
+  el.totalPercent.textContent = formatSignedPercent(totals.gainLossPercent);
   el.totalPercent.className = totals.gainLossPercent >= 0 ? "gain" : "loss";
   el.holdingCount.textContent = holdings.length;
   el.lastUpdated.textContent = `更新于 ${new Date(updatedAt).toLocaleString("zh-CN")}`;
@@ -189,7 +189,7 @@ function renderPortfolio() {
           <strong>${formatMoney(holding.marketValue, itemCurrency)}</strong>
         </div>
         <div class="holding-numbers">
-          <span class="${holding.gainLoss >= 0 ? "gain" : "loss"}">盈亏 ${formatMoney(holding.gainLoss, gainCurrency)} · ${formatNumber(gainPercent)}%</span>
+          <span class="${holding.gainLoss >= 0 ? "gain" : "loss"}">盈亏 ${formatSignedMoney(holding.gainLoss, gainCurrency)} · ${formatSignedPercent(gainPercent)}</span>
           <span>${formatNumber(holding.quantity)} 股 · ${escapeHtml(itemCurrency)}</span>
         </div>
       `;
@@ -246,10 +246,18 @@ async function loadAnalysis(symbol) {
             <span>持有 ${formatNumber(analyst.hold)}</span>
             <span>卖出 ${formatNumber(analyst.sell + analyst.strongSell)}</span>
           </div>
-          <p class="muted">盈利预期 EPS：${formatNumber(analyst.earningsEstimateAvg)}，区间 ${formatNumber(analyst.earningsEstimateLow)} - ${formatNumber(analyst.earningsEstimateHigh)}</p>
+          <p class="muted">来源：${escapeHtml(analyst.source || "公开数据源")} · 盈利预期 EPS：${formatNumber(analyst.earningsEstimateAvg)}，区间 ${formatNumber(analyst.earningsEstimateLow)} - ${formatNumber(analyst.earningsEstimateHigh)}</p>
         </div>
       `
       : `<div class="analysis-card"><p class="muted">${escapeHtml(analyst.note || "暂时没有分析师数据。")}</p></div>`;
+    const sourceLinksHtml = `
+      <div class="source-grid">
+        ${(data.sourceLinks || [])
+          .map((source) => `<a href="${escapeAttribute(source.url)}" target="_blank" rel="noreferrer">${escapeHtml(source.name)}</a>`)
+          .join("")}
+      </div>
+    `;
+    const quickStatsHtml = renderQuickStats();
     const newsHtml = data.items.length
       ? data.items
       .map(
@@ -266,10 +274,25 @@ async function loadAnalysis(symbol) {
       )
       .join("")
       : '<p class="empty">暂时没有重要消息。</p>';
-    el.newsList.innerHTML = analystHtml + newsHtml;
+    el.newsList.innerHTML = analystHtml + sourceLinksHtml + quickStatsHtml + newsHtml;
   } catch (error) {
     el.newsList.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
   }
+}
+
+function renderQuickStats() {
+  const holding = state.selected;
+  if (!holding) return "";
+  const itemCurrency = holding.displayCurrencyCode || holding.currencyCode || "GBP";
+  const costDistance = holding.averagePrice > 0 ? ((holding.currentPrice - holding.averagePrice) / holding.averagePrice) * 100 : null;
+  return `
+    <div class="quick-stats">
+      <div><span>当前价</span><strong>${formatMoney(holding.currentPrice, itemCurrency)}</strong></div>
+      <div><span>成本价</span><strong>${formatMoney(holding.averagePrice, itemCurrency)}</strong></div>
+      <div><span>距成本</span><strong class="${costDistance >= 0 ? "gain" : "loss"}">${formatSignedPercent(costDistance)}</strong></div>
+      <div><span>持仓市值</span><strong>${formatMoney(holding.marketValue, itemCurrency)}</strong></div>
+    </div>
+  `;
 }
 
 function drawCandles(candles, costPrice) {
@@ -404,6 +427,17 @@ function formatMoney(value, currency = "GBP") {
   }).format(Number(value));
 }
 
+function formatSignedMoney(value, currency = "GBP") {
+  if (!Number.isFinite(Number(value))) return "--";
+  const amount = Math.abs(Number(value));
+  const formatted = new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: currency || "GBP",
+    maximumFractionDigits: 2
+  }).format(amount);
+  return `${Number(value) >= 0 ? "+" : "-"}${formatted}`;
+}
+
 function formatNumber(value) {
   if (!Number.isFinite(Number(value))) return "--";
   return number.format(Number(value));
@@ -417,6 +451,11 @@ function formatPlainMoney(value) {
 function formatDate(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("zh-CN");
+}
+
+function formatSignedPercent(value) {
+  if (!Number.isFinite(Number(value))) return "--";
+  return `${Number(value) >= 0 ? "+" : ""}${formatNumber(value)}%`;
 }
 
 function escapeHtml(value) {

@@ -391,6 +391,42 @@ canvas {
   background: #fbfcfe;
 }
 
+.source-grid,
+.quick-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.source-grid a,
+.quick-stats div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+}
+
+.source-grid a {
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.quick-stats div {
+  display: grid;
+  gap: 4px;
+}
+
+.quick-stats span {
+  color: var(--subtle);
+  font-size: 12px;
+}
+
+.quick-stats strong {
+  font-size: 15px;
+}
+
 .analysis-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

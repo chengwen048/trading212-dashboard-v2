@@ -318,17 +318,97 @@ async function yahooChart(symbol, range = "6mo", interval = "1d") {
 }
 
 async function yahooAnalysis(symbol) {
-  const [newsData, summaryData] = await Promise.all([
+  const [newsData, summaryData, marketBeatData] = await Promise.all([
     yahooNews(symbol).catch(() => []),
-    yahooQuoteSummary(symbol).catch(() => null)
+    yahooQuoteSummary(symbol).catch(() => null),
+    marketBeatAnalysis(symbol).catch(() => null)
   ]);
-  const analyst = normalizeAnalystSummary(summaryData);
+  const analyst = mergeAnalystSummary(normalizeAnalystSummary(summaryData), marketBeatData);
   return {
     symbol,
     updatedAt: new Date().toISOString(),
     analyst,
+    sourceLinks: analystSourceLinks(symbol),
     items: newsData.map(scoreNews).sort((a, b) => b.importanceScore - a.importanceScore)
   };
+}
+
+async function marketBeatAnalysis(symbol) {
+  const root = symbol.replace(/\..+$/, "").toUpperCase();
+  const exchanges = ["NASDAQ", "NYSE", "NYSEARCA"];
+  for (const exchange of exchanges) {
+    const url = `https://www.marketbeat.com/stocks/${exchange}/${encodeURIComponent(root)}/price-target/`;
+    const response = await fetch(url, {
+      headers: { "user-agent": "Mozilla/5.0 portfolio viewer" }
+    });
+    if (!response.ok) continue;
+    const html = await response.text();
+    const text = decodeXml(html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " "));
+    const targetMatch = text.match(/average price target is\s*\$?([0-9,.]+).*?highest price target .*?\$?([0-9,.]+).*?lowest price target .*?\$?([0-9,.]+).*?upside of\s*([-0-9.]+)%/i);
+    if (!targetMatch) continue;
+    const countMatch = text.match(/([0-9]+)\s+analysts?\s+(?:have\s+)?(?:issued|set|provided)/i);
+    return {
+      available: true,
+      source: "MarketBeat",
+      sourceUrl: url,
+      targetMeanPrice: parseMoney(targetMatch[1]),
+      targetHighPrice: parseMoney(targetMatch[2]),
+      targetLowPrice: parseMoney(targetMatch[3]),
+      upsidePercent: Number(targetMatch[4]),
+      analystCount: countMatch ? Number(countMatch[1]) : null
+    };
+  }
+  return null;
+}
+
+function parseMoney(value) {
+  const number = Number(String(value || "").replace(/,/g, ""));
+  return Number.isFinite(number) ? number : null;
+}
+
+function mergeAnalystSummary(yahoo, marketBeat) {
+  const hasYahoo = yahoo?.available;
+  const hasMarketBeat = marketBeat?.available;
+  if (!hasYahoo && !hasMarketBeat) {
+    return {
+      available: false,
+      note: "暂时没有抓到完整分析师数据；下方提供多个免费权威入口和按重要程度排序的最新消息。"
+    };
+  }
+  return {
+    available: true,
+    source: marketBeat?.source || "Yahoo Finance",
+    sourceUrl: marketBeat?.sourceUrl || "",
+    recommendation: yahoo?.recommendation || "",
+    recommendationMean: yahoo?.recommendationMean ?? null,
+    analystCount: marketBeat?.analystCount ?? yahoo?.analystCount ?? null,
+    currentPrice: yahoo?.currentPrice ?? null,
+    targetMeanPrice: marketBeat?.targetMeanPrice ?? yahoo?.targetMeanPrice ?? null,
+    targetHighPrice: marketBeat?.targetHighPrice ?? yahoo?.targetHighPrice ?? null,
+    targetLowPrice: marketBeat?.targetLowPrice ?? yahoo?.targetLowPrice ?? null,
+    upsidePercent: marketBeat?.upsidePercent ?? yahoo?.upsidePercent ?? null,
+    strongBuy: yahoo?.strongBuy ?? null,
+    buy: yahoo?.buy ?? null,
+    hold: yahoo?.hold ?? null,
+    sell: yahoo?.sell ?? null,
+    strongSell: yahoo?.strongSell ?? null,
+    earningsEstimateAvg: yahoo?.earningsEstimateAvg ?? null,
+    earningsEstimateLow: yahoo?.earningsEstimateLow ?? null,
+    earningsEstimateHigh: yahoo?.earningsEstimateHigh ?? null,
+    revenueEstimateAvg: yahoo?.revenueEstimateAvg ?? null
+  };
+}
+
+function analystSourceLinks(symbol) {
+  const root = symbol.replace(/\..+$/, "").toLowerCase();
+  const upper = root.toUpperCase();
+  return [
+    { name: "MarketBeat 目标价", url: `https://www.marketbeat.com/stocks/NASDAQ/${upper}/price-target/` },
+    { name: "TipRanks Forecast", url: `https://www.tipranks.com/stocks/${root}/forecast` },
+    { name: "Nasdaq Analyst Research", url: `https://www.nasdaq.com/market-activity/stocks/${root}/analyst-research` },
+    { name: "MarketWatch Analyst Estimates", url: `https://www.marketwatch.com/investing/stock/${root}/analystestimates` },
+    { name: "Yahoo Analysis", url: `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}/analysis` }
+  ];
 }
 
 async function yahooQuoteSummary(symbol) {
