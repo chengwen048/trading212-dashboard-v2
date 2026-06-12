@@ -73,10 +73,11 @@
               <h2 id="selectedName">选择一只股票</h2>
             </div>
             <div class="range-buttons" role="group" aria-label="K 线周期">
-              <button data-range="1mo" data-interval="1d" type="button">1月</button>
-              <button data-range="6mo" data-interval="1d" type="button" class="active">6月</button>
-              <button data-range="1y" data-interval="1d" type="button">1年</button>
-              <button data-range="5y" data-interval="1wk" type="button">5年</button>
+              <button data-range="1d" data-interval="5m" type="button">日线</button>
+              <button data-range="5d" data-interval="30m" type="button">周线</button>
+              <button data-range="1mo" data-interval="1d" type="button">月线</button>
+              <button data-range="1y" data-interval="1d" type="button" class="active">年线</button>
+              <button data-range="5y" data-interval="1wk" type="button">五年</button>
             </div>
           </div>
           <canvas id="candleChart" width="980" height="460"></canvas>

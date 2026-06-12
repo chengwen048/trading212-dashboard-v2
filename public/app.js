@@ -1,7 +1,7 @@
 const state = {
   portfolio: null,
   selected: null,
-  range: "6mo",
+  range: "1y",
   interval: "1d",
   refreshTimer: null,
   shareToken: ""
@@ -134,19 +134,24 @@ function startAutoRefresh(refreshMs = 5000) {
 
 async function loadPortfolio(options = {}) {
   try {
+    const scrollY = window.scrollY;
+    const selectedTicker = state.selected?.ticker;
     if (!options.quiet) setStatus("正在同步持仓", "idle");
     const data = await api("/api/portfolio");
     state.portfolio = data;
-    renderPortfolio();
+    if (selectedTicker) {
+      state.selected = data.holdings.find((holding) => holding.ticker === selectedTicker) || state.selected;
+    }
     if (!state.selected && data.holdings.length) state.selected = data.holdings[0];
-    if (state.selected) await loadSelectedDetails();
+    renderPortfolio({ preserveScroll: options.quiet, scrollY });
+    if (state.selected && !options.quiet) await loadSelectedDetails();
     setStatus(data.stale ? "已连接，显示最近数据" : "已连接，5秒自动同步中", "live");
   } catch (error) {
     setStatus(error.message, "error");
   }
 }
 
-function renderPortfolio() {
+function renderPortfolio(options = {}) {
   const { holdings, totals, cash, updatedAt } = state.portfolio;
   const currency = totals.currencyCode || cash?.currencyCode || "GBP";
   document.body.classList.add("connected");
@@ -195,11 +200,15 @@ function renderPortfolio() {
       `;
       row.addEventListener("click", () => {
         state.selected = holding;
-        renderPortfolio();
+        renderPortfolio({ preserveScroll: true, scrollY: window.scrollY });
         loadSelectedDetails();
       });
       el.holdingsList.append(row);
     });
+
+  if (options.preserveScroll) {
+    requestAnimationFrame(() => window.scrollTo(0, options.scrollY || 0));
+  }
 }
 
 async function loadSelectedDetails() {

@@ -300,6 +300,14 @@ button:hover {
   color: var(--subtle);
 }
 
+.holding-numbers span.gain {
+  color: var(--green);
+}
+
+.holding-numbers span.loss {
+  color: var(--red);
+}
+
 .holding-numbers span:last-child {
   font-weight: 700;
   text-align: right;
