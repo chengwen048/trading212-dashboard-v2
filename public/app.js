@@ -4,7 +4,11 @@ const state = {
   range: "1y",
   interval: "1d",
   refreshTimer: null,
-  shareToken: ""
+  shareToken: "",
+  detailRequestId: 0,
+  detailAbort: null,
+  selectedClickTimer: null,
+  selectedClickQueued: null
 };
 
 const el = {
@@ -222,9 +226,7 @@ function renderPortfolio(options = {}) {
         </div>
       `;
       row.addEventListener("click", () => {
-        state.selected = holding;
-        renderPortfolio({ preserveScroll: true, scrollY: window.scrollY });
-        loadSelectedDetails();
+        selectHolding(holding);
       });
       el.holdingsList.append(row);
     });
@@ -253,12 +255,24 @@ function renderMarketStrip(holdings, fallbackCurrency) {
         <em class="${Number(holding.gainLoss || 0) >= 0 ? "gain" : "loss"}">${formatSignedPercent(gainPercent)}</em>
       `;
       chip.addEventListener("click", () => {
-        state.selected = holding;
-        renderPortfolio({ preserveScroll: true, scrollY: window.scrollY });
-        loadSelectedDetails();
+        selectHolding(holding);
       });
       el.marketStrip.append(chip);
     });
+}
+
+function selectHolding(holding) {
+  state.selected = holding;
+  renderPortfolio({ preserveScroll: true, scrollY: window.scrollY });
+  queueSelectedDetails(holding);
+}
+
+function queueSelectedDetails(holding) {
+  state.selectedClickQueued = holding;
+  clearTimeout(state.selectedClickTimer);
+  state.selectedClickTimer = setTimeout(() => {
+    if (state.selectedClickQueued) loadSelectedDetails(state.selectedClickQueued);
+  }, 220);
 }
 
 function renderPortfolioInsights(holdings, totals, currency) {
@@ -300,13 +314,29 @@ function renderPortfolioInsights(holdings, totals, currency) {
   `;
 }
 
-async function loadSelectedDetails() {
-  const holding = state.selected;
+async function loadSelectedDetails(holding = state.selected) {
+  if (!holding) return;
+  const requestId = nextDetailRequest();
   el.selectedTicker.textContent = holding.yahooSymbol || holding.ticker;
   el.selectedName.textContent = holding.displayName || holding.ticker;
   el.newsSymbol.textContent = holding.yahooSymbol || holding.ticker;
   if (el.aiStockInput) el.aiStockInput.value = holding.yahooSymbol || holding.ticker;
-  await Promise.all([loadChart(holding), loadAnalysis(holding.yahooSymbol || holding.ticker), loadAiReview(holding)]);
+  await Promise.allSettled([
+    loadChart(holding, requestId),
+    loadAnalysis(holding.yahooSymbol || holding.ticker, requestId),
+    loadAiReview(holding, requestId)
+  ]);
+}
+
+function nextDetailRequest() {
+  state.detailRequestId += 1;
+  if (state.detailAbort) state.detailAbort.abort();
+  state.detailAbort = new AbortController();
+  return state.detailRequestId;
+}
+
+function isCurrentDetailRequest(requestId) {
+  return requestId === state.detailRequestId && !state.detailAbort?.signal.aborted;
 }
 
 async function analyzeSearchStock(strategyOnly = false) {
@@ -325,34 +355,42 @@ async function analyzeSearchStock(strategyOnly = false) {
     displayCurrencyCode: symbol.includes(".") ? "USD" : "CNY"
   };
   state.selected = virtualHolding;
+  const requestId = nextDetailRequest();
   el.selectedTicker.textContent = symbol;
   el.selectedName.textContent = strategyOnly ? `${symbol} 策略推演` : `${symbol} AI 分析`;
   el.newsSymbol.textContent = symbol;
   setStatus("正在生成 AI 股评", "idle");
-  await Promise.all([loadChart(virtualHolding), loadAiReview(virtualHolding)]);
-  setStatus("AI 股评已更新", "live");
+  await Promise.allSettled([loadChart(virtualHolding, requestId), loadAiReview(virtualHolding, requestId)]);
+  if (isCurrentDetailRequest(requestId)) setStatus("AI 股评已更新", "live");
 }
 
-async function loadChart(holding) {
+async function loadChart(holding, requestId = state.detailRequestId) {
   const symbol = holding.yahooSymbol || holding.ticker;
   try {
     el.chartMeta.textContent = "正在读取 K 线";
-    const data = await api(`/api/chart?symbol=${encodeURIComponent(symbol)}&range=${state.range}&interval=${state.interval}`);
+    const data = await api(`/api/chart?symbol=${encodeURIComponent(symbol)}&range=${state.range}&interval=${state.interval}`, {
+      signal: state.detailAbort?.signal
+    });
+    if (!isCurrentDetailRequest(requestId)) return;
     state.lastCandles = data.candles;
     state.lastCostPrice = Number(holding.averagePrice);
     drawCandles(data.candles, state.lastCostPrice);
     el.chartMeta.textContent = `${symbol} · ${data.range} · ${data.interval} · ${data.currency || ""}`;
   } catch (error) {
+    if (isAbortError(error) || !isCurrentDetailRequest(requestId)) return;
     state.lastCandles = [];
     drawEmptyChart(error.message);
     el.chartMeta.textContent = error.message;
   }
 }
 
-async function loadAnalysis(symbol) {
+async function loadAnalysis(symbol, requestId = state.detailRequestId) {
   try {
     el.newsList.innerHTML = '<p class="empty">正在读取分析师预期和重要消息。</p>';
-    const data = await api(`/api/analysis?symbol=${encodeURIComponent(symbol)}`);
+    const data = await api(`/api/analysis?symbol=${encodeURIComponent(symbol)}`, {
+      signal: state.detailAbort?.signal
+    });
+    if (!isCurrentDetailRequest(requestId)) return;
     const analyst = data.analyst || {};
     const analystHtml = analyst.available
       ? `
@@ -399,23 +437,28 @@ async function loadAnalysis(symbol) {
       : '<p class="empty">暂时没有重要消息。</p>';
     el.newsList.innerHTML = analystHtml + sourceLinksHtml + quickStatsHtml + newsHtml;
   } catch (error) {
+    if (isAbortError(error) || !isCurrentDetailRequest(requestId)) return;
     el.newsList.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
   }
 }
 
-async function loadAiReview(holding) {
+async function loadAiReview(holding, requestId = state.detailRequestId) {
   const symbol = holding.yahooSymbol || holding.ticker;
   try {
-    setAiLoading(symbol);
+    if (isCurrentDetailRequest(requestId)) setAiLoading(symbol);
     const query = new URLSearchParams({
       symbol,
       range: state.range,
       interval: state.interval
     });
     if (Number.isFinite(Number(holding.averagePrice))) query.set("costPrice", String(holding.averagePrice));
-    const data = await api(`/api/ai-review?${query.toString()}`);
+    const data = await api(`/api/ai-review?${query.toString()}`, {
+      signal: state.detailAbort?.signal
+    });
+    if (!isCurrentDetailRequest(requestId)) return;
     renderAiReview(data);
   } catch (error) {
+    if (isAbortError(error) || !isCurrentDetailRequest(requestId)) return;
     el.aiReviewSummary.textContent = error.message;
     el.aiDataSource.textContent = "分析失败";
   }
@@ -594,6 +637,10 @@ async function api(path, options) {
     throw new Error(data.detail || data.error || `请求失败 ${response.status}`);
   }
   return data;
+}
+
+function isAbortError(error) {
+  return error?.name === "AbortError";
 }
 
 function setStatus(text, mode) {
