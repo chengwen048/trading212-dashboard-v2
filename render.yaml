@@ -3,7 +3,7 @@ services:
     name: trading212-dashboard
     env: node
     plan: starter
-    buildCommand: npm install
+    buildCommand: npm install && python3 -m pip install --user -r requirements.txt || true
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:

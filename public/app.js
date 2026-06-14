@@ -12,6 +12,9 @@ const el = {
   secretKey: document.querySelector("#secretKey"),
   saveKey: document.querySelector("#saveKey"),
   refreshNow: document.querySelector("#refreshNow"),
+  aiStockInput: document.querySelector("#aiStockInput"),
+  analyzeStock: document.querySelector("#analyzeStock"),
+  strategyButton: document.querySelector("#strategyButton"),
   statusText: document.querySelector("#statusText"),
   connectionDot: document.querySelector("#connectionDot"),
   modeBadge: document.querySelector("#modeBadge"),
@@ -32,7 +35,16 @@ const el = {
   candleChart: document.querySelector("#candleChart"),
   chartMeta: document.querySelector("#chartMeta"),
   newsSymbol: document.querySelector("#newsSymbol"),
-  newsList: document.querySelector("#newsList")
+  newsList: document.querySelector("#newsList"),
+  aiReviewTitle: document.querySelector("#aiReviewTitle"),
+  aiDataSource: document.querySelector("#aiDataSource"),
+  aiReviewSummary: document.querySelector("#aiReviewSummary"),
+  aiScore: document.querySelector("#aiScore"),
+  aiAction: document.querySelector("#aiAction"),
+  aiTrend: document.querySelector("#aiTrend"),
+  moodScore: document.querySelector("#moodScore"),
+  moodLabel: document.querySelector("#moodLabel"),
+  aiLevels: document.querySelector("#aiLevels")
 };
 
 const money = new Intl.NumberFormat("zh-CN", {
@@ -76,6 +88,13 @@ function initShareToken() {
 function wireEvents() {
   el.saveKey.addEventListener("click", () => saveKey(true));
   if (el.refreshNow) el.refreshNow.addEventListener("click", () => loadPortfolio());
+  if (el.analyzeStock) el.analyzeStock.addEventListener("click", () => analyzeSearchStock());
+  if (el.strategyButton) el.strategyButton.addEventListener("click", () => analyzeSearchStock(true));
+  if (el.aiStockInput) {
+    el.aiStockInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") analyzeSearchStock();
+    });
+  }
   document.querySelectorAll(".range-buttons button").forEach((button) => {
     button.addEventListener("click", () => {
       document.querySelectorAll(".range-buttons button").forEach((item) => item.classList.remove("active"));
@@ -286,7 +305,32 @@ async function loadSelectedDetails() {
   el.selectedTicker.textContent = holding.yahooSymbol || holding.ticker;
   el.selectedName.textContent = holding.displayName || holding.ticker;
   el.newsSymbol.textContent = holding.yahooSymbol || holding.ticker;
-  await Promise.all([loadChart(holding), loadAnalysis(holding.yahooSymbol || holding.ticker)]);
+  if (el.aiStockInput) el.aiStockInput.value = holding.yahooSymbol || holding.ticker;
+  await Promise.all([loadChart(holding), loadAnalysis(holding.yahooSymbol || holding.ticker), loadAiReview(holding)]);
+}
+
+async function analyzeSearchStock(strategyOnly = false) {
+  const symbol = el.aiStockInput?.value.trim();
+  if (!symbol) {
+    setStatus("请输入股票代码", "error");
+    return;
+  }
+  const virtualHolding = {
+    ticker: symbol,
+    yahooSymbol: symbol,
+    displayName: symbol,
+    averagePrice: null,
+    currentPrice: null,
+    marketValue: null,
+    displayCurrencyCode: symbol.includes(".") ? "USD" : "CNY"
+  };
+  state.selected = virtualHolding;
+  el.selectedTicker.textContent = symbol;
+  el.selectedName.textContent = strategyOnly ? `${symbol} 策略推演` : `${symbol} AI 分析`;
+  el.newsSymbol.textContent = symbol;
+  setStatus("正在生成 AI 股评", "idle");
+  await Promise.all([loadChart(virtualHolding), loadAiReview(virtualHolding)]);
+  setStatus("AI 股评已更新", "live");
 }
 
 async function loadChart(holding) {
@@ -357,6 +401,60 @@ async function loadAnalysis(symbol) {
   } catch (error) {
     el.newsList.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
   }
+}
+
+async function loadAiReview(holding) {
+  const symbol = holding.yahooSymbol || holding.ticker;
+  try {
+    setAiLoading(symbol);
+    const query = new URLSearchParams({
+      symbol,
+      range: state.range,
+      interval: state.interval
+    });
+    if (Number.isFinite(Number(holding.averagePrice))) query.set("costPrice", String(holding.averagePrice));
+    const data = await api(`/api/ai-review?${query.toString()}`);
+    renderAiReview(data);
+  } catch (error) {
+    el.aiReviewSummary.textContent = error.message;
+    el.aiDataSource.textContent = "分析失败";
+  }
+}
+
+function setAiLoading(symbol) {
+  if (!el.aiReviewTitle) return;
+  el.aiReviewTitle.textContent = `${symbol} 正在分析`;
+  el.aiDataSource.textContent = "读取行情";
+  el.aiReviewSummary.textContent = "正在读取 BaoStock/行情数据，计算趋势、波动、量能和关键点位。";
+  el.aiScore.textContent = "--";
+  el.aiAction.textContent = "--";
+  el.aiTrend.textContent = "--";
+  el.moodScore.textContent = "--";
+  el.moodLabel.textContent = "计算中";
+  el.aiLevels.innerHTML = "";
+}
+
+function renderAiReview(data) {
+  const review = data.review || {};
+  const levels = review.levels || {};
+  const scoreClass = Number(review.score || 0) >= 60 ? "gain" : Number(review.score || 0) <= 40 ? "loss" : "";
+  el.aiReviewTitle.textContent = `${data.name || data.symbol} ${formatSignedPercent(data.changePercent)}`;
+  el.aiDataSource.textContent = data.source || "公开行情";
+  el.aiReviewSummary.textContent = review.summary || "暂无完整股评。";
+  el.aiScore.textContent = formatNumber(review.score);
+  el.aiScore.className = scoreClass;
+  el.aiAction.textContent = review.action || "--";
+  el.aiAction.className = scoreClass;
+  el.aiTrend.textContent = review.trend || "--";
+  el.aiTrend.className = review.trend === "震荡偏弱" ? "loss" : review.trend === "强势多头" ? "gain" : "";
+  el.moodScore.textContent = formatNumber(review.score);
+  el.moodLabel.textContent = review.mood || "中性";
+  el.aiLevels.innerHTML = `
+    <div><span>理想买入点</span><strong class="gain">${formatPlainMoney(levels.idealBuy)}</strong></div>
+    <div><span>次优买入点</span><strong>${formatPlainMoney(levels.secondaryBuy)}</strong></div>
+    <div><span>止损价位</span><strong class="loss">${formatPlainMoney(levels.stopLoss)}</strong></div>
+    <div><span>目标价位</span><strong class="gain">${formatPlainMoney(levels.target)}</strong></div>
+  `;
 }
 
 function renderQuickStats() {

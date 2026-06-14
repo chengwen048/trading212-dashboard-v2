@@ -1,6 +1,7 @@
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -317,6 +318,232 @@ async function yahooChart(symbol, range = "6mo", interval = "1d") {
   };
 }
 
+async function marketChart(symbol, range = "6mo", interval = "1d") {
+  const normalized = normalizeStockSymbol(symbol);
+  if (normalized.baostockSymbol) {
+    const baostock = await loadBaostockSeries(normalized.baostockSymbol, range).catch(() => null);
+    if (baostock) return baostock;
+    return yahooChart(normalized.yahooSymbol, range, interval);
+  }
+  return yahooChart(normalized.yahooSymbol, range, interval);
+}
+
+async function aiStockReview(symbol, range = "1y", interval = "1d", costPrice = null) {
+  const normalized = normalizeStockSymbol(symbol);
+  const sourceResult = normalized.baostockSymbol
+    ? await loadBaostockSeries(normalized.baostockSymbol, range).catch(() => null)
+    : null;
+  const chart = sourceResult || (await yahooChart(normalized.yahooSymbol, range, interval));
+  const candles = chart.candles || [];
+  const review = buildAiReview({
+    symbol: normalized.displaySymbol,
+    name: normalized.name || normalized.displaySymbol,
+    candles,
+    costPrice: Number(costPrice),
+    source: sourceResult ? "BaoStock" : `Yahoo Finance${normalized.baostockSymbol ? " fallback" : ""}`
+  });
+
+  const last = candles[candles.length - 1] || {};
+  const prev = candles[candles.length - 2] || {};
+  return {
+    symbol: normalized.displaySymbol,
+    name: normalized.name || normalized.displaySymbol,
+    source: sourceResult ? "BaoStock 平台数据" : `免费行情数据 ${chart.currency || ""}`.trim(),
+    price: last.close ?? chart.regularMarketPrice ?? null,
+    change: Number.isFinite(last.close - prev.close) ? last.close - prev.close : null,
+    changePercent: Number.isFinite(last.close) && Number.isFinite(prev.close) && prev.close > 0 ? ((last.close - prev.close) / prev.close) * 100 : null,
+    updatedAt: new Date().toISOString(),
+    review
+  };
+}
+
+function normalizeStockSymbol(symbol = "") {
+  const raw = String(symbol || "").trim();
+  const compactRaw = raw.replace(/\s+/g, "");
+  const knownNames = {
+    贵州茅台: "sh.600519",
+    生益科技: "sh.600183",
+    万华化学: "sh.600309",
+    恒瑞医药: "sh.600276",
+    中国巨石: "sh.600176",
+    招商银行: "sh.600036",
+    华能国际: "sh.600011",
+    中信证券: "sh.600030",
+    平安银行: "sz.000001",
+    宁德时代: "sz.300750",
+    比亚迪: "sz.002594",
+    五粮液: "sz.000858"
+  };
+  if (knownNames[compactRaw]) {
+    const normalized = normalizeStockSymbol(knownNames[compactRaw]);
+    return { ...normalized, name: compactRaw };
+  }
+
+  const upper = raw.toUpperCase();
+  const cnSuffix = upper.match(/^([036]\d{5})\.(SH|SS|SZ)$/);
+  if (cnSuffix) {
+    const digits = cnSuffix[1];
+    const market = cnSuffix[2] === "SZ" ? "sz" : "sh";
+    return {
+      displaySymbol: `${market}.${digits}`,
+      baostockSymbol: `${market}.${digits}`,
+      yahooSymbol: market === "sh" ? `${digits}.SS` : `${digits}.SZ`,
+      name: compactRaw
+    };
+  }
+  const cnPrefix = upper.match(/^(SH|SZ)([036]\d{5})$/);
+  if (cnPrefix) {
+    const market = cnPrefix[1].toLowerCase();
+    const digits = cnPrefix[2];
+    return {
+      displaySymbol: `${market}.${digits}`,
+      baostockSymbol: `${market}.${digits}`,
+      yahooSymbol: market === "sh" ? `${digits}.SS` : `${digits}.SZ`,
+      name: compactRaw
+    };
+  }
+  const digits = raw.match(/\b([036]\d{5})\b/)?.[1];
+  if (/^(SH|SZ)\.\d{6}$/i.test(raw)) {
+    const code = raw.toLowerCase();
+    return {
+      displaySymbol: code,
+      baostockSymbol: code,
+      yahooSymbol: code.startsWith("sh.") ? `${code.slice(3)}.SS` : `${code.slice(3)}.SZ`,
+      name: compactRaw
+    };
+  }
+  if (digits) {
+    const market = digits.startsWith("6") ? "sh" : "sz";
+    return {
+      displaySymbol: `${market}.${digits}`,
+      baostockSymbol: `${market}.${digits}`,
+      yahooSymbol: market === "sh" ? `${digits}.SS` : `${digits}.SZ`,
+      name: compactRaw
+    };
+  }
+  return {
+    displaySymbol: upper,
+    baostockSymbol: null,
+    yahooSymbol: upper
+  };
+}
+
+async function loadBaostockSeries(baostockSymbol, range = "1y") {
+  const script = path.join(__dirname, "tools", "baostock_fetch.py");
+  if (!existsSync(script)) throw new Error("BaoStock adapter not found.");
+
+  const days = range === "5y" ? 1825 : range === "1mo" ? 45 : range === "5d" ? 12 : range === "1d" ? 5 : 390;
+  const payload = await runPythonJson(script, [baostockSymbol, String(days)]);
+  if (!payload?.candles?.length) throw new Error(payload?.error || "BaoStock returned no candles.");
+  return {
+    symbol: baostockSymbol,
+    range,
+    interval: "1d",
+    currency: "CNY",
+    source: "BaoStock",
+    candles: payload.candles
+  };
+}
+
+function runPythonJson(script, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.env.PYTHON_BIN || "python3", [script, ...args], {
+      cwd: __dirname,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) return reject(new Error(stderr || `Python exited ${code}`));
+      try {
+        resolve(JSON.parse(stdout));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
+function buildAiReview({ symbol, name, candles, costPrice, source }) {
+  const closes = candles.map((item) => Number(item.close)).filter(Number.isFinite);
+  const volumes = candles.map((item) => Number(item.volume)).filter(Number.isFinite);
+  const last = candles[candles.length - 1] || {};
+  const prev = candles[candles.length - 2] || {};
+  const price = Number(last.close);
+  const ma5 = average(closes.slice(-5));
+  const ma20 = average(closes.slice(-20));
+  const ma60 = average(closes.slice(-60));
+  const avgVolume = average(volumes.slice(-20));
+  const currentVolume = Number(last.volume);
+  const changePercent = Number.isFinite(price) && Number.isFinite(prev.close) && prev.close > 0 ? ((price - prev.close) / prev.close) * 100 : 0;
+  const volatility = closes.length > 8 ? standardDeviation(closes.slice(-20).map((close, index, arr) => (index ? ((close - arr[index - 1]) / arr[index - 1]) * 100 : 0)).slice(1)) : 0;
+  const volumeRatio = Number.isFinite(currentVolume) && avgVolume > 0 ? currentVolume / avgVolume : 1;
+  const costDistance = Number.isFinite(costPrice) && costPrice > 0 && Number.isFinite(price) ? ((price - costPrice) / costPrice) * 100 : null;
+
+  let score = 50;
+  if (price > ma5) score += 8;
+  if (price > ma20) score += 10;
+  if (ma5 > ma20) score += 8;
+  if (ma20 > ma60) score += 8;
+  if (changePercent > 0) score += Math.min(8, changePercent * 1.2);
+  if (volumeRatio > 1.2 && changePercent > 0) score += 6;
+  if (volumeRatio > 1.5 && changePercent < 0) score -= 8;
+  if (volatility > 3.5) score -= 8;
+  if (Number.isFinite(costDistance) && costDistance < -8) score -= 5;
+  score = Math.max(12, Math.min(92, Math.round(score)));
+
+  const trend = score >= 72 ? "强势多头" : score >= 58 ? "震荡偏强" : score >= 42 ? "震荡" : "震荡偏弱";
+  const action = score >= 72 ? "持有/顺势观察" : score >= 58 ? "轻仓关注" : score >= 42 ? "等待确认" : "控制风险";
+  const mood = score >= 72 ? "偏贪婪" : score >= 58 ? "偏乐观" : score >= 42 ? "中性" : "偏谨慎";
+  const atr = average(candles.slice(-14).map((item) => Number(item.high) - Number(item.low)).filter(Number.isFinite)) || price * 0.025;
+  const idealBuy = price ? Math.max(price - atr * 0.8, ma20 || price * 0.96) : null;
+  const secondaryBuy = price ? Math.max(price - atr * 0.35, ma5 || price * 0.985) : null;
+  const stopLoss = price ? Math.min(price - atr * 1.5, (ma20 || price) * 0.96) : null;
+  const target = price ? price + atr * (score >= 60 ? 2.2 : 1.4) : null;
+
+  const costText = Number.isFinite(costDistance) ? `，当前价较你的成本${costDistance >= 0 ? "高" : "低"}${Math.abs(costDistance).toFixed(2)}%` : "";
+  const volumeText = volumeRatio >= 1.25 ? "量能放大" : volumeRatio <= 0.75 ? "量能收缩" : "量能平稳";
+  const summary = `${name} 当前综合评分 ${score} 分，趋势判断为${trend}。价格相对 MA5 ${price >= ma5 ? "偏强" : "偏弱"}，相对 MA20 ${price >= ma20 ? "站上" : "跌破"}，${volumeText}，近 20 日波动约 ${volatility.toFixed(2)}%${costText}。系统建议：${action}，并以止损位和目标位做纪律化跟踪。此结论基于 ${source} 与规则模型自动生成，仅供信息参考。`;
+
+  return {
+    score,
+    action,
+    trend,
+    mood,
+    ma5,
+    ma20,
+    ma60,
+    volumeRatio,
+    volatility,
+    summary,
+    levels: {
+      idealBuy,
+      secondaryBuy,
+      stopLoss,
+      target
+    }
+  };
+}
+
+function average(values) {
+  const clean = values.filter(Number.isFinite);
+  return clean.length ? clean.reduce((sum, value) => sum + value, 0) / clean.length : null;
+}
+
+function standardDeviation(values) {
+  const avg = average(values);
+  if (!Number.isFinite(avg)) return 0;
+  const variance = average(values.map((value) => (value - avg) ** 2));
+  return Math.sqrt(variance || 0);
+}
+
 async function yahooAnalysis(symbol) {
   const [newsData, summaryData, marketBeatData] = await Promise.all([
     yahooNews(symbol).catch(() => []),
@@ -590,7 +817,7 @@ const server = http.createServer(async (req, res) => {
       const data = await cached(
         `chart:${symbol}:${url.searchParams.get("range")}:${url.searchParams.get("interval")}`,
         60 * 1000,
-        () => yahooChart(symbol, url.searchParams.get("range") || "6mo", url.searchParams.get("interval") || "1d")
+        () => marketChart(symbol, url.searchParams.get("range") || "6mo", url.searchParams.get("interval") || "1d")
       );
       return json(res, 200, data);
     }
@@ -606,6 +833,20 @@ const server = http.createServer(async (req, res) => {
       const symbol = String(url.searchParams.get("symbol") || "").trim();
       if (!symbol) return json(res, 400, { error: "Missing symbol." });
       const data = await cached(`analysis:${symbol}`, 10 * 60 * 1000, () => yahooAnalysis(symbol));
+      return json(res, 200, data);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/ai-review") {
+      const symbol = String(url.searchParams.get("symbol") || "").trim();
+      if (!symbol) return json(res, 400, { error: "Missing symbol." });
+      const range = String(url.searchParams.get("range") || "1y");
+      const interval = String(url.searchParams.get("interval") || "1d");
+      const costPrice = url.searchParams.get("costPrice");
+      const data = await cached(
+        `ai-review:${symbol}:${range}:${interval}:${costPrice || ""}`,
+        60 * 1000,
+        () => aiStockReview(symbol, range, interval, costPrice)
+      );
       return json(res, 200, data);
     }
 
