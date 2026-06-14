@@ -23,6 +23,8 @@ const el = {
   totalGain: document.querySelector("#totalGain"),
   totalGainUsd: document.querySelector("#totalGainUsd"),
   totalPercent: document.querySelector("#totalPercent"),
+  marketStrip: document.querySelector("#marketStrip"),
+  portfolioInsights: document.querySelector("#portfolioInsights"),
   holdingCount: document.querySelector("#holdingCount"),
   holdingsList: document.querySelector("#holdingsList"),
   selectedTicker: document.querySelector("#selectedTicker"),
@@ -168,6 +170,8 @@ function renderPortfolio(options = {}) {
   el.totalPercent.className = totals.gainLossPercent >= 0 ? "gain" : "loss";
   el.holdingCount.textContent = holdings.length;
   el.lastUpdated.textContent = `更新于 ${new Date(updatedAt).toLocaleString("zh-CN")}`;
+  renderMarketStrip(holdings, currency);
+  renderPortfolioInsights(holdings, totals, currency);
 
   if (!holdings.length) {
     el.holdingsList.innerHTML = '<p class="empty">没有读取到持仓。</p>';
@@ -209,6 +213,72 @@ function renderPortfolio(options = {}) {
   if (options.preserveScroll) {
     requestAnimationFrame(() => window.scrollTo(0, options.scrollY || 0));
   }
+}
+
+function renderMarketStrip(holdings, fallbackCurrency) {
+  if (!el.marketStrip) return;
+  el.marketStrip.innerHTML = "";
+  holdings
+    .slice()
+    .sort((a, b) => Number(b.marketValue || 0) - Number(a.marketValue || 0))
+    .slice(0, 10)
+    .forEach((holding) => {
+      const currency = holding.displayCurrencyCode || holding.currencyCode || fallbackCurrency;
+      const gainPercent = holding.costBasis > 0 ? (Number(holding.gainLoss || 0) / Number(holding.costBasis)) * 100 : holding.gainLossPercent;
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = `ticker-chip ${Number(holding.gainLoss || 0) >= 0 ? "gain-border" : "loss-border"} ${state.selected?.ticker === holding.ticker ? "active" : ""}`;
+      chip.innerHTML = `
+        <span>${escapeHtml(holding.yahooSymbol || holding.ticker)}</span>
+        <strong>${formatMoney(holding.marketValue, currency)}</strong>
+        <em class="${Number(holding.gainLoss || 0) >= 0 ? "gain" : "loss"}">${formatSignedPercent(gainPercent)}</em>
+      `;
+      chip.addEventListener("click", () => {
+        state.selected = holding;
+        renderPortfolio({ preserveScroll: true, scrollY: window.scrollY });
+        loadSelectedDetails();
+      });
+      el.marketStrip.append(chip);
+    });
+}
+
+function renderPortfolioInsights(holdings, totals, currency) {
+  if (!el.portfolioInsights) return;
+  if (!holdings.length) {
+    el.portfolioInsights.innerHTML = '<p class="empty">暂无组合摘要。</p>';
+    return;
+  }
+
+  const sortedByValue = holdings.slice().sort((a, b) => Number(b.marketValue || 0) - Number(a.marketValue || 0));
+  const sortedByGain = holdings.slice().sort((a, b) => Number(b.gainLoss || 0) - Number(a.gainLoss || 0));
+  const top = sortedByValue[0];
+  const best = sortedByGain[0];
+  const worst = sortedByGain[sortedByGain.length - 1];
+  const topThreeValue = sortedByValue.slice(0, 3).reduce((sum, item) => sum + Number(item.marketValue || 0), 0);
+  const concentration = Number(totals.marketValue) > 0 ? (topThreeValue / Number(totals.marketValue)) * 100 : null;
+
+  el.portfolioInsights.innerHTML = `
+    <article>
+      <span>最大持仓</span>
+      <strong>${escapeHtml(top.displayName || top.ticker)}</strong>
+      <small>${formatMoney(top.marketValue, top.displayCurrencyCode || top.currencyCode || currency)}</small>
+    </article>
+    <article>
+      <span>表现最好</span>
+      <strong class="${Number(best.gainLoss || 0) >= 0 ? "gain" : "loss"}">${escapeHtml(best.yahooSymbol || best.ticker)} ${formatSignedMoney(best.gainLoss, best.gainLossCurrencyCode || currency)}</strong>
+      <small>${escapeHtml(best.displayName || best.ticker)}</small>
+    </article>
+    <article>
+      <span>表现最弱</span>
+      <strong class="${Number(worst.gainLoss || 0) >= 0 ? "gain" : "loss"}">${escapeHtml(worst.yahooSymbol || worst.ticker)} ${formatSignedMoney(worst.gainLoss, worst.gainLossCurrencyCode || currency)}</strong>
+      <small>${escapeHtml(worst.displayName || worst.ticker)}</small>
+    </article>
+    <article>
+      <span>前三持仓占比</span>
+      <strong>${formatSignedPercent(concentration).replace("+", "")}</strong>
+      <small>${sortedByValue.slice(0, 3).map((item) => escapeHtml(item.yahooSymbol || item.ticker)).join(" / ")}</small>
+    </article>
+  `;
 }
 
 async function loadSelectedDetails() {
@@ -271,7 +341,7 @@ async function loadAnalysis(symbol) {
       ? data.items
       .map(
         (item) => `
-          <a class="news-item" href="${escapeAttribute(item.link)}" target="_blank" rel="noreferrer">
+          <a class="news-item ${newsDirectionClass(item.direction)}" href="${escapeAttribute(item.link)}" target="_blank" rel="noreferrer">
             <div class="news-badges">
               <span>${escapeHtml(item.direction || "中性")}</span>
               <span>重要度 ${formatNumber(item.importanceScore)}</span>
@@ -302,6 +372,12 @@ function renderQuickStats() {
       <div><span>持仓市值</span><strong>${formatMoney(holding.marketValue, itemCurrency)}</strong></div>
     </div>
   `;
+}
+
+function newsDirectionClass(direction = "") {
+  if (direction.includes("上涨")) return "news-up";
+  if (direction.includes("下跌")) return "news-down";
+  return "news-neutral";
 }
 
 function drawCandles(candles, costPrice) {
