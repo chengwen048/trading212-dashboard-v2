@@ -19,6 +19,9 @@ const shareToken = String(process.env.SHARE_TOKEN || "").trim();
 let sessionApiKey = "";
 let sessionSecretKey = "";
 let cache = new Map();
+let inFlight = new Map();
+
+const externalLimit = createLimiter(Number(process.env.EXTERNAL_CONCURRENCY || 4));
 
 const trading212Hosts = {
   live: "https://live.trading212.com",
@@ -74,13 +77,73 @@ function hasShareAccess(req, url) {
 async function cached(key, ttlMs, loader) {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.time < ttlMs) return hit.value;
+  if (inFlight.has(key)) return inFlight.get(key);
+
+  const pending = loader()
+    .then((value) => {
+      cache.set(key, { time: Date.now(), value });
+      return value;
+    })
+    .catch((error) => {
+      if (hit) return { ...hit.value, stale: true, staleReason: error.message };
+      throw error;
+    })
+    .finally(() => {
+      inFlight.delete(key);
+    });
+
+  inFlight.set(key, pending);
+  return pending;
+}
+
+function createLimiter(limit, maxQueue = 30) {
+  let active = 0;
+  const queue = [];
+  const runNext = () => {
+    if (active >= limit || !queue.length) return;
+    active += 1;
+    const { task, resolve, reject } = queue.shift();
+    task()
+      .then(resolve, reject)
+      .finally(() => {
+        active -= 1;
+        runNext();
+      });
+  };
+  return (task) =>
+    new Promise((resolve, reject) => {
+      if (queue.length >= maxQueue) {
+        reject(new Error("External data queue is busy."));
+        return;
+      }
+      queue.push({ task, resolve, reject });
+      runNext();
+    });
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 7000) {
+  return externalLimit(async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+}
+
+async function withTimeout(promise, timeoutMs, message) {
+  let timer;
   try {
-    const value = await loader();
-    cache.set(key, { time: Date.now(), value });
-    return value;
-  } catch (error) {
-    if (hit) return { ...hit.value, stale: true, staleReason: error.message };
-    throw error;
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -105,7 +168,7 @@ async function t212Fetch(req, endpoint) {
   let response;
   let detail = "";
   for (const headers of authAttempts) {
-    response = await fetch(url, { headers });
+    response = await fetchWithTimeout(url, { headers }, 7000);
     if (response.ok || response.status !== 401) break;
     detail = await response.text();
   }
@@ -288,9 +351,9 @@ async function yahooChart(symbol, range = "6mo", interval = "1d") {
   url.searchParams.set("range", cleanRange);
   url.searchParams.set("interval", cleanInterval);
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: { "user-agent": "Mozilla/5.0 portfolio viewer" }
-  });
+  }, 6500);
   if (!response.ok) throw new Error(`Market data request failed: ${response.status}`);
 
   const data = await response.json();
@@ -330,17 +393,19 @@ async function marketChart(symbol, range = "6mo", interval = "1d") {
 
 async function aiStockReview(symbol, range = "1y", interval = "1d", costPrice = null) {
   const normalized = normalizeStockSymbol(symbol);
-  const sourceResult = normalized.baostockSymbol
-    ? await loadBaostockSeries(normalized.baostockSymbol, range).catch(() => null)
-    : null;
-  const chart = sourceResult || (await yahooChart(normalized.yahooSymbol, range, interval));
+  const chart = await cached(
+    `market-chart:${normalized.displaySymbol}:${range}:${interval}`,
+    60 * 1000,
+    () => marketChart(symbol, range, interval)
+  );
   const candles = chart.candles || [];
+  const isBaostock = chart.source === "BaoStock";
   const review = buildAiReview({
     symbol: normalized.displaySymbol,
     name: normalized.name || normalized.displaySymbol,
     candles,
     costPrice: Number(costPrice),
-    source: sourceResult ? "BaoStock" : `Yahoo Finance${normalized.baostockSymbol ? " fallback" : ""}`
+    source: isBaostock ? "BaoStock" : `Yahoo Finance${normalized.baostockSymbol ? " fallback" : ""}`
   });
 
   const last = candles[candles.length - 1] || {};
@@ -348,7 +413,7 @@ async function aiStockReview(symbol, range = "1y", interval = "1d", costPrice = 
   return {
     symbol: normalized.displaySymbol,
     name: normalized.name || normalized.displaySymbol,
-    source: sourceResult ? "BaoStock 平台数据" : `免费行情数据 ${chart.currency || ""}`.trim(),
+    source: isBaostock ? "BaoStock 平台数据" : `免费行情数据 ${chart.currency || ""}`.trim(),
     price: last.close ?? chart.regularMarketPrice ?? null,
     change: Number.isFinite(last.close - prev.close) ? last.close - prev.close : null,
     changePercent: Number.isFinite(last.close) && Number.isFinite(prev.close) && prev.close > 0 ? ((last.close - prev.close) / prev.close) * 100 : null,
@@ -433,7 +498,7 @@ async function loadBaostockSeries(baostockSymbol, range = "1y") {
   if (!existsSync(script)) throw new Error("BaoStock adapter not found.");
 
   const days = range === "5y" ? 1825 : range === "1mo" ? 45 : range === "5d" ? 12 : range === "1d" ? 5 : 390;
-  const payload = await runPythonJson(script, [baostockSymbol, String(days)]);
+  const payload = await externalLimit(() => runPythonJson(script, [baostockSymbol, String(days)], 6000));
   if (!payload?.candles?.length) throw new Error(payload?.error || "BaoStock returned no candles.");
   return {
     symbol: baostockSymbol,
@@ -445,7 +510,7 @@ async function loadBaostockSeries(baostockSymbol, range = "1y") {
   };
 }
 
-function runPythonJson(script, args) {
+function runPythonJson(script, args, timeoutMs = 6000) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.env.PYTHON_BIN || "python3", [script, ...args], {
       cwd: __dirname,
@@ -453,20 +518,35 @@ function runPythonJson(script, args) {
     });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    const finish = (callback) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      callback();
+    };
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish(() => reject(new Error("BaoStock request timed out.")));
+    }, timeoutMs);
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
     });
     child.stderr.on("data", (chunk) => {
       stderr += chunk;
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      finish(() => reject(error));
+    });
     child.on("close", (code) => {
-      if (code !== 0) return reject(new Error(stderr || `Python exited ${code}`));
-      try {
-        resolve(JSON.parse(stdout));
-      } catch (error) {
-        reject(error);
-      }
+      finish(() => {
+        if (code !== 0) return reject(new Error(stderr || `Python exited ${code}`));
+        try {
+          resolve(JSON.parse(stdout));
+        } catch (error) {
+          reject(error);
+        }
+      });
     });
   });
 }
@@ -565,9 +645,9 @@ async function marketBeatAnalysis(symbol) {
   const exchanges = ["NASDAQ", "NYSE", "NYSEARCA"];
   for (const exchange of exchanges) {
     const url = `https://www.marketbeat.com/stocks/${exchange}/${encodeURIComponent(root)}/price-target/`;
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       headers: { "user-agent": "Mozilla/5.0 portfolio viewer" }
-    });
+    }, 5500);
     if (!response.ok) continue;
     const html = await response.text();
     const text = decodeXml(html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " "));
@@ -640,12 +720,12 @@ function analystSourceLinks(symbol) {
 
 async function yahooQuoteSummary(symbol) {
   const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=financialData,recommendationTrend,earningsTrend`;
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: {
       "user-agent": "Mozilla/5.0 portfolio viewer",
       accept: "application/json"
     }
-  });
+  }, 5500);
   if (!response.ok) throw new Error(`Analyst data request failed: ${response.status}`);
   const data = await response.json();
   const result = data.quoteSummary?.result?.[0];
@@ -714,9 +794,9 @@ function scoreNews(item) {
 
 async function yahooNews(symbol) {
   const url = `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encodeURIComponent(symbol)}&region=US&lang=en-US`;
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: { "user-agent": "Mozilla/5.0 portfolio viewer" }
-  });
+  }, 5500);
   if (!response.ok) throw new Error(`News request failed: ${response.status}`);
 
   const xml = await response.text();
@@ -807,17 +887,28 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/portfolio") {
-      const snapshot = await cached(`portfolio:${getApiKey(req).slice(-6)}`, portfolioRefreshMs, () => portfolioSnapshot(req));
+      const snapshot = await withTimeout(
+        cached(`portfolio:${getApiKey(req).slice(-6)}`, portfolioRefreshMs, () => portfolioSnapshot(req)),
+        9000,
+        "Portfolio request timed out."
+      );
       return json(res, 200, snapshot);
     }
 
     if (req.method === "GET" && url.pathname === "/api/chart") {
       const symbol = String(url.searchParams.get("symbol") || "").trim();
       if (!symbol) return json(res, 400, { error: "Missing symbol." });
-      const data = await cached(
-        `chart:${symbol}:${url.searchParams.get("range")}:${url.searchParams.get("interval")}`,
-        60 * 1000,
-        () => marketChart(symbol, url.searchParams.get("range") || "6mo", url.searchParams.get("interval") || "1d")
+      const range = url.searchParams.get("range") || "6mo";
+      const interval = url.searchParams.get("interval") || "1d";
+      const normalized = normalizeStockSymbol(symbol);
+      const data = await withTimeout(
+        cached(
+          `market-chart:${normalized.displaySymbol}:${range}:${interval}`,
+          60 * 1000,
+          () => marketChart(symbol, range, interval)
+        ),
+        9000,
+        "Chart request timed out."
       );
       return json(res, 200, data);
     }
@@ -825,14 +916,18 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/news") {
       const symbol = String(url.searchParams.get("symbol") || "").trim();
       if (!symbol) return json(res, 400, { error: "Missing symbol." });
-      const data = await cached(`news:${symbol}`, 10 * 60 * 1000, () => yahooNews(symbol));
+      const data = await withTimeout(cached(`news:${symbol}`, 10 * 60 * 1000, () => yahooNews(symbol)), 7500, "News request timed out.");
       return json(res, 200, { symbol, items: data });
     }
 
     if (req.method === "GET" && url.pathname === "/api/analysis") {
       const symbol = String(url.searchParams.get("symbol") || "").trim();
       if (!symbol) return json(res, 400, { error: "Missing symbol." });
-      const data = await cached(`analysis:${symbol}`, 10 * 60 * 1000, () => yahooAnalysis(symbol));
+      const data = await withTimeout(
+        cached(`analysis:${symbol}`, 10 * 60 * 1000, () => yahooAnalysis(symbol)),
+        8000,
+        "Analysis request timed out."
+      );
       return json(res, 200, data);
     }
 
@@ -842,10 +937,15 @@ const server = http.createServer(async (req, res) => {
       const range = String(url.searchParams.get("range") || "1y");
       const interval = String(url.searchParams.get("interval") || "1d");
       const costPrice = url.searchParams.get("costPrice");
-      const data = await cached(
-        `ai-review:${symbol}:${range}:${interval}:${costPrice || ""}`,
-        60 * 1000,
-        () => aiStockReview(symbol, range, interval, costPrice)
+      const normalized = normalizeStockSymbol(symbol);
+      const data = await withTimeout(
+        cached(
+          `ai-review:${normalized.displaySymbol}:${range}:${interval}:${costPrice || ""}`,
+          60 * 1000,
+          () => aiStockReview(symbol, range, interval, costPrice)
+        ),
+        9000,
+        "AI review request timed out."
       );
       return json(res, 200, data);
     }

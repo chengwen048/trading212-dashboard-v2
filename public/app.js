@@ -8,7 +8,8 @@ const state = {
   detailRequestId: 0,
   detailAbort: null,
   selectedClickTimer: null,
-  selectedClickQueued: null
+  selectedClickQueued: null,
+  analysisTimer: null
 };
 
 const el = {
@@ -323,13 +324,14 @@ async function loadSelectedDetails(holding = state.selected) {
   if (el.aiStockInput) el.aiStockInput.value = holding.yahooSymbol || holding.ticker;
   await Promise.allSettled([
     loadChart(holding, requestId),
-    loadAnalysis(holding.yahooSymbol || holding.ticker, requestId),
     loadAiReview(holding, requestId)
   ]);
+  scheduleAnalysis(holding.yahooSymbol || holding.ticker, requestId);
 }
 
 function nextDetailRequest() {
   state.detailRequestId += 1;
+  clearTimeout(state.analysisTimer);
   if (state.detailAbort) state.detailAbort.abort();
   state.detailAbort = new AbortController();
   return state.detailRequestId;
@@ -337,6 +339,14 @@ function nextDetailRequest() {
 
 function isCurrentDetailRequest(requestId) {
   return requestId === state.detailRequestId && !state.detailAbort?.signal.aborted;
+}
+
+function scheduleAnalysis(symbol, requestId) {
+  clearTimeout(state.analysisTimer);
+  el.newsList.innerHTML = '<p class="empty">停留片刻后加载分析师预期和重要消息。</p>';
+  state.analysisTimer = setTimeout(() => {
+    if (isCurrentDetailRequest(requestId)) loadAnalysis(symbol, requestId);
+  }, 1200);
 }
 
 async function analyzeSearchStock(strategyOnly = false) {
