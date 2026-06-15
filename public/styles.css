@@ -600,8 +600,11 @@ canvas {
 }
 
 .hero-value-row strong {
-  font-size: clamp(22px, 2.2vw, 34px);
+  max-width: 100%;
+  font-size: clamp(22px, 1.75vw, 28px);
   line-height: 1.05;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .allocation-card {
@@ -669,6 +672,15 @@ canvas {
 .tile-small {
   grid-column: span 1;
   grid-row: span 1;
+}
+
+.tile-small strong,
+.tile-small small {
+  display: none;
+}
+
+.tile-small em {
+  font-size: 16px;
 }
 
 .gain-tile {
@@ -1722,5 +1734,253 @@ canvas {
 
   .command-note {
     white-space: normal;
+  }
+}
+
+/* Final mobile guardrails: keep every dashboard section in a clean single flow. */
+@media (max-width: 760px) {
+  html,
+  body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    padding-left: 0;
+  }
+
+  .app-nav {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: flex;
+    width: auto;
+    margin: 0;
+    padding: 8px 10px;
+    border-width: 0 0 1px;
+    border-radius: 0;
+    overflow-x: auto;
+  }
+
+  .brand-mark {
+    flex: 0 0 42px;
+    margin: 0 4px 0 0;
+  }
+
+  .nav-item {
+    flex: 0 0 auto;
+    min-width: 58px;
+    min-height: 38px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  .topbar {
+    position: static;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 14px 14px 12px;
+  }
+
+  .topbar h1 {
+    font-size: 24px;
+    line-height: 1.12;
+  }
+
+  .top-meta,
+  .status {
+    margin-left: 0;
+  }
+
+  .layout {
+    width: 100%;
+    padding: 12px 12px 32px;
+  }
+
+  .toolbar,
+  .public-dashboard .toolbar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    padding: 10px;
+  }
+
+  .ai-command-bar {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .ai-command-bar input,
+  .command-note {
+    grid-column: 1 / -1;
+  }
+
+  .ai-command-bar button {
+    min-width: 0;
+    padding: 0 10px;
+  }
+
+  .portfolio-dashboard {
+    display: block !important;
+    grid-template-columns: none !important;
+    grid-template-areas: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+  }
+
+  .portfolio-dashboard > * {
+    grid-area: auto !important;
+    width: 100%;
+    margin-bottom: 12px;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .portfolio-hero-card,
+  .allocation-card,
+  .market-mood-card,
+  .dashboard-widget,
+  .ai-points-card,
+  .holdings-panel,
+  .chart-panel,
+  .news-panel,
+  .insight-panel {
+    border-radius: 14px;
+  }
+
+  .portfolio-hero-card {
+    padding: 14px;
+  }
+
+  .hero-title-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .hero-title-row h2 {
+    font-size: 28px;
+  }
+
+  .hero-value-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .hero-value-row div {
+    min-height: 86px;
+    padding: 10px;
+  }
+
+  .hero-value-row strong {
+    font-size: clamp(18px, 6vw, 24px);
+    overflow-wrap: anywhere;
+    line-height: 1.12;
+  }
+
+  .ai-summary {
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  .ai-score-row,
+  .levels-grid,
+  .analyst-overview,
+  .widget-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .allocation-card {
+    display: grid;
+    grid-template-rows: auto auto auto;
+  }
+
+  .allocation-treemap {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-auto-rows: minmax(118px, auto);
+    overflow: visible;
+  }
+
+  .tile-large,
+  .tile-medium,
+  .tile-small {
+    grid-column: span 1 !important;
+    grid-row: span 1 !important;
+  }
+
+  .allocation-tile {
+    min-height: 118px;
+  }
+
+  .market-mood-card,
+  .ai-points-card,
+  .chart-panel,
+  .holdings-panel,
+  .news-panel {
+    min-height: 0;
+  }
+
+  .mood-ring {
+    width: 142px;
+    height: 142px;
+  }
+
+  .workspace,
+  .summary-grid,
+  .insight-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-head,
+  .section-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .range-buttons {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .range-buttons button {
+    flex: 1 1 30%;
+    min-width: 0;
+  }
+
+  canvas {
+    height: 330px;
+    min-height: 280px;
+  }
+
+  .holding-main,
+  .holding-numbers {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .name {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .section-divider {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 420px) {
+  .allocation-treemap {
+    grid-template-columns: 1fr;
+  }
+
+  .allocation-tile {
+    min-height: 96px;
+  }
+}
+
+@media (max-width: 360px) {
+  .hero-value-row {
+    grid-template-columns: 1fr;
   }
 }
