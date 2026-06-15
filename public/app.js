@@ -32,6 +32,17 @@ const el = {
   totalGainUsd: document.querySelector("#totalGainUsd"),
   totalPercent: document.querySelector("#totalPercent"),
   marketStrip: document.querySelector("#marketStrip"),
+  allocationTreemap: document.querySelector("#allocationTreemap"),
+  allocationBar: document.querySelector("#allocationBar"),
+  allocationMode: document.querySelector("#allocationMode"),
+  seeAllHoldings: document.querySelector("#seeAllHoldings"),
+  toggleCompact: document.querySelector("#toggleCompact"),
+  sortHoldingsWidget: document.querySelector("#sortHoldingsWidget"),
+  focusWorst: document.querySelector("#focusWorst"),
+  topMovers: document.querySelector("#topMovers"),
+  portfolioRisk: document.querySelector("#portfolioRisk"),
+  analystOverview: document.querySelector("#analystOverview"),
+  loadSources: document.querySelector("#loadSources"),
   portfolioInsights: document.querySelector("#portfolioInsights"),
   holdingCount: document.querySelector("#holdingCount"),
   holdingsList: document.querySelector("#holdingsList"),
@@ -50,6 +61,32 @@ const el = {
   moodScore: document.querySelector("#moodScore"),
   moodLabel: document.querySelector("#moodLabel"),
   aiLevels: document.querySelector("#aiLevels")
+};
+
+const zhNameBySymbol = {
+  AAPL: "苹果",
+  MSFT: "微软",
+  NVDA: "英伟达",
+  GOOGL: "谷歌",
+  GOOG: "谷歌",
+  AMZN: "亚马逊",
+  TSLA: "特斯拉",
+  META: "Meta",
+  MU: "美光科技",
+  CORZ: "Core Scientific",
+  JEDI: "JPM 美股增强",
+  SPCX: "SpaceX",
+  EQGB: "Invesco 全球股票",
+  "EQGB.L": "Invesco 全球股票",
+  VUAG: "Vanguard 标普500",
+  "VUAG.L": "Vanguard 标普500",
+  "600519": "贵州茅台",
+  "600183": "生益科技",
+  "600309": "万华化学",
+  "600276": "恒瑞医药",
+  "000001": "平安银行",
+  "300750": "宁德时代",
+  "002594": "比亚迪"
 };
 
 const money = new Intl.NumberFormat("zh-CN", {
@@ -95,6 +132,29 @@ function wireEvents() {
   if (el.refreshNow) el.refreshNow.addEventListener("click", () => loadPortfolio());
   if (el.analyzeStock) el.analyzeStock.addEventListener("click", () => analyzeSearchStock());
   if (el.strategyButton) el.strategyButton.addEventListener("click", () => analyzeSearchStock(true));
+  if (el.seeAllHoldings) el.seeAllHoldings.addEventListener("click", () => el.holdingsList?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  if (el.toggleCompact) {
+    el.toggleCompact.addEventListener("click", () => {
+      document.body.classList.toggle("compact-dashboard");
+    });
+  }
+  if (el.sortHoldingsWidget) {
+    el.sortHoldingsWidget.addEventListener("click", () => {
+      document.body.classList.toggle("sort-by-gain");
+      if (state.portfolio) renderMarketStrip(state.portfolio.holdings, state.portfolio.totals.currencyCode || "GBP");
+    });
+  }
+  if (el.focusWorst) {
+    el.focusWorst.addEventListener("click", () => {
+      document.body.classList.toggle("show-risk-first");
+      if (state.portfolio) renderPortfolioWidgets(state.portfolio.holdings, state.portfolio.totals, state.portfolio.totals.currencyCode || "GBP");
+    });
+  }
+  if (el.loadSources) {
+    el.loadSources.addEventListener("click", () => {
+      el.newsList?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
   if (el.aiStockInput) {
     el.aiStockInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") analyzeSearchStock();
@@ -196,6 +256,7 @@ function renderPortfolio(options = {}) {
   el.lastUpdated.textContent = `更新于 ${new Date(updatedAt).toLocaleString("zh-CN")}`;
   renderMarketStrip(holdings, currency);
   renderPortfolioInsights(holdings, totals, currency);
+  renderPortfolioWidgets(holdings, totals, currency);
 
   if (!holdings.length) {
     el.holdingsList.innerHTML = '<p class="empty">没有读取到持仓。</p>';
@@ -217,7 +278,7 @@ function renderPortfolio(options = {}) {
         <div class="holding-main">
           <div>
             <div class="ticker">${escapeHtml(holding.yahooSymbol || holding.ticker)}</div>
-            <div class="name">${escapeHtml(holding.displayName || holding.ticker)}</div>
+            <div class="name">${escapeHtml(displayHoldingName(holding))}</div>
           </div>
           <strong>${formatMoney(holding.marketValue, itemCurrency)}</strong>
         </div>
@@ -242,7 +303,11 @@ function renderMarketStrip(holdings, fallbackCurrency) {
   el.marketStrip.innerHTML = "";
   holdings
     .slice()
-    .sort((a, b) => Number(b.marketValue || 0) - Number(a.marketValue || 0))
+    .sort((a, b) =>
+      document.body.classList.contains("sort-by-gain")
+        ? Number(b.gainLoss || 0) - Number(a.gainLoss || 0)
+        : Number(b.marketValue || 0) - Number(a.marketValue || 0)
+    )
     .slice(0, 10)
     .forEach((holding) => {
       const currency = holding.displayCurrencyCode || holding.currencyCode || fallbackCurrency;
@@ -253,6 +318,7 @@ function renderMarketStrip(holdings, fallbackCurrency) {
       chip.innerHTML = `
         <span>${escapeHtml(holding.yahooSymbol || holding.ticker)}</span>
         <strong>${formatMoney(holding.marketValue, currency)}</strong>
+        <small>${escapeHtml(displayHoldingName(holding))}</small>
         <em class="${Number(holding.gainLoss || 0) >= 0 ? "gain" : "loss"}">${formatSignedPercent(gainPercent)}</em>
       `;
       chip.addEventListener("click", () => {
@@ -260,6 +326,114 @@ function renderMarketStrip(holdings, fallbackCurrency) {
       });
       el.marketStrip.append(chip);
     });
+}
+
+function renderPortfolioWidgets(holdings, totals, currency) {
+  renderAllocationTreemap(holdings, totals, currency);
+  renderAllocationBar(holdings, totals);
+  renderTopMovers(holdings, currency);
+  renderPortfolioRisk(holdings, totals);
+  renderAnalystOverview(holdings);
+}
+
+function renderAllocationTreemap(holdings, totals, currency) {
+  if (!el.allocationTreemap) return;
+  const total = Number(totals.marketValue || holdings.reduce((sum, item) => sum + Number(item.marketValue || 0), 0));
+  const sorted = holdings.slice().sort((a, b) => Number(b.marketValue || 0) - Number(a.marketValue || 0));
+  el.allocationTreemap.innerHTML = sorted
+    .slice(0, 12)
+    .map((holding, index) => {
+      const value = Number(holding.marketValue || 0);
+      const weight = total > 0 ? (value / total) * 100 : 0;
+      const gainPercent = holding.costBasis > 0 ? (Number(holding.gainLoss || 0) / Number(holding.costBasis)) * 100 : holding.gainLossPercent;
+      const sizeClass = index < 2 ? "tile-large" : index < 5 ? "tile-medium" : "tile-small";
+      const tone = Number(holding.gainLoss || 0) >= 0 ? "gain-tile" : "loss-tile";
+      return `
+        <button class="allocation-tile ${sizeClass} ${tone}" type="button" data-ticker="${escapeAttribute(holding.ticker)}">
+          <span>${escapeHtml(holding.yahooSymbol || holding.ticker)}</span>
+          <strong>${escapeHtml(shortChineseName(holding))}</strong>
+          <em class="${Number(holding.gainLoss || 0) >= 0 ? "gain" : "loss"}">${formatSignedPercent(gainPercent)}</em>
+          <small>${formatMoney(value, holding.displayCurrencyCode || holding.currencyCode || currency)} · ${formatNumber(weight)}%</small>
+        </button>
+      `;
+    })
+    .join("");
+  el.allocationTreemap.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const holding = holdings.find((item) => item.ticker === button.dataset.ticker);
+      if (holding) selectHolding(holding);
+    });
+  });
+}
+
+function renderAllocationBar(holdings, totals) {
+  if (!el.allocationBar) return;
+  const total = Number(totals.marketValue || holdings.reduce((sum, item) => sum + Number(item.marketValue || 0), 0));
+  el.allocationBar.innerHTML = holdings
+    .slice()
+    .sort((a, b) => Number(b.marketValue || 0) - Number(a.marketValue || 0))
+    .slice(0, 8)
+    .map((holding, index) => {
+      const width = total > 0 ? Math.max(5, (Number(holding.marketValue || 0) / total) * 100) : 5;
+      return `<span style="width:${width}%" title="${escapeAttribute(displayHoldingName(holding))}">${escapeHtml(holding.yahooSymbol || holding.ticker)}</span>`;
+    })
+    .join("");
+}
+
+function renderTopMovers(holdings, currency) {
+  if (!el.topMovers) return;
+  const sorted = holdings
+    .slice()
+    .sort((a, b) =>
+      document.body.classList.contains("show-risk-first")
+        ? Number(a.gainLoss || 0) - Number(b.gainLoss || 0)
+        : Number(b.gainLoss || 0) - Number(a.gainLoss || 0)
+    )
+    .slice(0, 5);
+  el.topMovers.innerHTML = sorted
+    .map((holding) => {
+      const gainCurrency = holding.gainLossCurrencyCode || currency;
+      return `
+        <button type="button" data-ticker="${escapeAttribute(holding.ticker)}">
+          <span>${escapeHtml(holding.yahooSymbol || holding.ticker)} · ${escapeHtml(shortChineseName(holding))}</span>
+          <strong class="${Number(holding.gainLoss || 0) >= 0 ? "gain" : "loss"}">${formatSignedMoney(holding.gainLoss, gainCurrency)}</strong>
+        </button>
+      `;
+    })
+    .join("");
+  el.topMovers.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const holding = holdings.find((item) => item.ticker === button.dataset.ticker);
+      if (holding) selectHolding(holding);
+    });
+  });
+}
+
+function renderPortfolioRisk(holdings, totals) {
+  if (!el.portfolioRisk) return;
+  const total = Number(totals.marketValue || 0);
+  const sorted = holdings.slice().sort((a, b) => Number(b.marketValue || 0) - Number(a.marketValue || 0));
+  const topWeight = total > 0 ? (Number(sorted[0]?.marketValue || 0) / total) * 100 : 0;
+  const loserCount = holdings.filter((item) => Number(item.gainLoss || 0) < 0).length;
+  const profitableCount = holdings.length - loserCount;
+  el.portfolioRisk.innerHTML = `
+    <div><span>最大持仓占比</span><strong>${formatNumber(topWeight)}%</strong></div>
+    <div><span>盈利/亏损数量</span><strong>${profitableCount}/${loserCount}</strong></div>
+    <div><span>持仓数量</span><strong>${holdings.length}</strong></div>
+  `;
+}
+
+function renderAnalystOverview(holdings) {
+  if (!el.analystOverview) return;
+  const selected = state.selected || holdings[0];
+  const symbol = selected?.yahooSymbol || selected?.ticker || "--";
+  el.analystOverview.innerHTML = `
+    <a href="https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}/analysis" target="_blank" rel="noreferrer">Yahoo Finance</a>
+    <a href="https://www.marketbeat.com/stocks/NASDAQ/${encodeURIComponent(String(symbol).replace(/\..+$/, "").toUpperCase())}/price-target/" target="_blank" rel="noreferrer">MarketBeat</a>
+    <a href="https://www.tipranks.com/stocks/${encodeURIComponent(String(symbol).replace(/\..+$/, "").toLowerCase())}/forecast" target="_blank" rel="noreferrer">TipRanks</a>
+    <a href="https://www.nasdaq.com/market-activity/stocks/${encodeURIComponent(String(symbol).replace(/\..+$/, "").toLowerCase())}/analyst-research" target="_blank" rel="noreferrer">Nasdaq</a>
+    <a href="https://www.marketwatch.com/investing/stock/${encodeURIComponent(String(symbol).replace(/\..+$/, "").toLowerCase())}/analystestimates" target="_blank" rel="noreferrer">MarketWatch</a>
+  `;
 }
 
 function selectHolding(holding) {
@@ -319,7 +493,7 @@ async function loadSelectedDetails(holding = state.selected) {
   if (!holding) return;
   const requestId = nextDetailRequest();
   el.selectedTicker.textContent = holding.yahooSymbol || holding.ticker;
-  el.selectedName.textContent = holding.displayName || holding.ticker;
+  el.selectedName.textContent = displayHoldingName(holding);
   el.newsSymbol.textContent = holding.yahooSymbol || holding.ticker;
   if (el.aiStockInput) el.aiStockInput.value = holding.yahooSymbol || holding.ticker;
   await Promise.allSettled([
@@ -362,7 +536,7 @@ async function analyzeSearchStock(strategyOnly = false) {
     averagePrice: null,
     currentPrice: null,
     marketValue: null,
-    displayCurrencyCode: symbol.includes(".") ? "USD" : "CNY"
+    displayCurrencyCode: /(^|\.)(SH|SZ)$|^[036]\d{5}$|^(sh|sz)\./i.test(symbol) ? "CNY" : "USD"
   };
   state.selected = virtualHolding;
   const requestId = nextDetailRequest();
@@ -529,6 +703,24 @@ function newsDirectionClass(direction = "") {
   if (direction.includes("上涨")) return "news-up";
   if (direction.includes("下跌")) return "news-down";
   return "news-neutral";
+}
+
+function displayHoldingName(holding) {
+  const english = holding.displayName || holding.yahooSymbol || holding.ticker;
+  const chinese = chineseNameForHolding(holding);
+  if (!chinese || String(english).includes(chinese)) return english;
+  return `${english} · ${chinese}`;
+}
+
+function shortChineseName(holding) {
+  return chineseNameForHolding(holding) || holding.displayName || holding.yahooSymbol || holding.ticker;
+}
+
+function chineseNameForHolding(holding) {
+  const symbol = String(holding.yahooSymbol || holding.ticker || "").toUpperCase();
+  const clean = symbol.replace(/\.(L|SS|SZ|DE)$/i, "");
+  const raw = String(holding.ticker || "").match(/([036]\d{5})/)?.[1];
+  return zhNameBySymbol[symbol] || zhNameBySymbol[clean] || zhNameBySymbol[raw] || "";
 }
 
 function drawCandles(candles, costPrice) {

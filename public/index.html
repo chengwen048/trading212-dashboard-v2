@@ -51,43 +51,34 @@
         <span class="command-note">BaoStock 数据优先 · 自动生成股评</span>
       </section>
 
-      <section class="summary-grid" aria-label="账户概览">
-        <article>
-          <span>账户总值</span>
-          <strong id="totalValue">--</strong>
-        </article>
-        <article>
-          <span>今日涨跌</span>
-          <strong id="todayChange">--</strong>
-          <small id="todayPercent">--</small>
-        </article>
-        <article>
-          <span>总盈亏</span>
-          <strong id="totalGain">--</strong>
-          <small id="totalGainUsd">--</small>
-        </article>
-        <article>
-          <span>收益率</span>
-          <strong id="totalPercent">--</strong>
-        </article>
-      </section>
-
-      <section class="market-strip" aria-label="持仓行情速览">
-        <div class="strip-label">
-          <span>持仓速览</span>
-          <strong>按市值排序</strong>
-        </div>
-        <div id="marketStrip" class="strip-track"></div>
-      </section>
-
-      <section id="aiBriefing" class="ai-briefing" aria-label="AI 股评系统">
-        <div class="ai-main-card">
-          <div class="ai-card-head">
+      <section id="aiBriefing" class="portfolio-dashboard" aria-label="投资组合首屏概览">
+        <div class="portfolio-hero-card">
+          <div class="hero-title-row">
             <div>
-              <p class="eyebrow">AI Stock Review</p>
-              <h2 id="aiReviewTitle">全自动 AI 股评系统</h2>
+              <p class="eyebrow">Portfolio Command Center</p>
+              <h2>任成文投资组合总览</h2>
             </div>
             <span id="aiDataSource">等待分析</span>
+          </div>
+          <div class="hero-value-row">
+            <div>
+              <span>账户总值</span>
+              <strong id="totalValue">--</strong>
+            </div>
+            <div>
+              <span>今日涨跌</span>
+              <strong id="todayChange">--</strong>
+              <small id="todayPercent">--</small>
+            </div>
+            <div>
+              <span>总盈亏</span>
+              <strong id="totalGain">--</strong>
+              <small id="totalGainUsd">--</small>
+            </div>
+            <div>
+              <span>收益率</span>
+              <strong id="totalPercent">--</strong>
+            </div>
           </div>
           <p id="aiReviewSummary" class="ai-summary">选择持仓或输入股票代码后，系统会结合行情、趋势、波动、成交量和持仓成本自动生成操作观点。</p>
           <div class="ai-score-row">
@@ -96,13 +87,52 @@
             <div><span>趋势预测</span><strong id="aiTrend">--</strong></div>
           </div>
         </div>
+
+        <div class="allocation-card">
+          <div class="section-head compact">
+            <div>
+              <h2>资产配置</h2>
+              <span>按持仓市值</span>
+            </div>
+            <button id="allocationMode" type="button" class="mini-control">涨跌</button>
+          </div>
+          <div id="allocationTreemap" class="allocation-treemap"></div>
+          <button id="seeAllHoldings" type="button" class="wide-control">查看全部持仓</button>
+        </div>
+
         <div class="market-mood-card">
-          <span>市场情绪</span>
+          <span>组合情绪</span>
           <div class="mood-ring">
             <strong id="moodScore">--</strong>
             <em id="moodLabel">等待</em>
           </div>
+          <div id="portfolioRisk" class="risk-stack"></div>
         </div>
+
+        <div class="dashboard-widget allocation-bar-card">
+          <div class="widget-head">
+            <span>配置带</span>
+            <button id="toggleCompact" type="button">紧凑</button>
+          </div>
+          <div id="allocationBar" class="allocation-bar"></div>
+        </div>
+
+        <div class="dashboard-widget">
+          <div class="widget-head">
+            <span>持仓速览</span>
+            <button id="sortHoldingsWidget" type="button">切换排序</button>
+          </div>
+          <div id="marketStrip" class="strip-track widget-strip"></div>
+        </div>
+
+        <div class="dashboard-widget">
+          <div class="widget-head">
+            <span>表现排行</span>
+            <button id="focusWorst" type="button">看风险</button>
+          </div>
+          <div id="topMovers" class="mover-list"></div>
+        </div>
+
         <div class="ai-points-card">
           <div class="section-head compact">
             <h2>狙击点位</h2>
@@ -110,6 +140,24 @@
           </div>
           <div id="aiLevels" class="levels-grid"></div>
         </div>
+
+        <div class="dashboard-widget analyst-overview-card">
+          <div class="widget-head">
+            <span>分析师来源</span>
+            <button id="loadSources" type="button">打开来源</button>
+          </div>
+          <div id="analystOverview" class="analyst-overview"></div>
+        </div>
+
+        <h2 id="aiReviewTitle" class="sr-only">全自动 AI 股评系统</h2>
+      </section>
+
+      <section class="section-divider">
+        <div>
+          <p class="eyebrow">Single Stock Workbench</p>
+          <h2>个股深度分析</h2>
+        </div>
+        <span>点击持仓或搜索股票后更新</span>
       </section>
 
       <section class="workspace">
