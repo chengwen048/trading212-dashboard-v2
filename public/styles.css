@@ -1984,3 +1984,614 @@ canvas {
     grid-template-columns: 1fr;
   }
 }
+
+/* Portfolio-first responsive display fix */
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  background: #080d16;
+}
+
+.password-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(87, 199, 230, 0.18), transparent 34%),
+    radial-gradient(circle at 82% 18%, rgba(246, 200, 76, 0.12), transparent 30%),
+    #080d16;
+}
+
+.password-gate[hidden] {
+  display: none;
+}
+
+.password-card {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 420px);
+  border: 1px solid rgba(87, 199, 230, 0.24);
+  border-radius: 16px;
+  padding: clamp(22px, 5vw, 34px);
+  background: rgba(19, 23, 36, 0.92);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
+}
+
+.password-card h1 {
+  color: #f4f8ff;
+  font-size: clamp(25px, 6vw, 34px);
+  line-height: 1.15;
+}
+
+.password-card input {
+  min-height: 52px;
+  border-color: rgba(87, 199, 230, 0.3);
+  border-radius: 10px;
+  background: rgba(8, 13, 22, 0.72);
+  color: #eef6ff;
+  font-size: 18px;
+}
+
+.password-card button {
+  min-height: 52px;
+  border: 1px solid rgba(87, 199, 230, 0.35);
+  border-radius: 10px;
+  background: rgba(87, 199, 230, 0.24);
+  color: #e8fbff;
+}
+
+.password-error {
+  min-height: 20px;
+  color: var(--red);
+  font-size: 14px;
+}
+
+body.locked {
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+body.locked > :not(.password-gate) {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.topbar,
+.layout,
+.portfolio-dashboard,
+.workspace,
+.insight-grid,
+.hero-value-row,
+.ai-score-row,
+.levels-grid,
+.analyst-overview,
+.widget-strip,
+.allocation-treemap {
+  min-width: 0;
+}
+
+.topbar {
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+
+.topbar h1 {
+  font-size: clamp(21px, 2.5vw, 32px);
+  line-height: 1.16;
+}
+
+.layout {
+  padding-top: 14px;
+}
+
+.toolbar {
+  grid-template-columns: minmax(180px, 320px) minmax(180px, 320px) auto minmax(170px, 1fr);
+}
+
+.portfolio-dashboard {
+  display: grid;
+  grid-template-columns: minmax(300px, 1.04fr) minmax(360px, 1.18fr) minmax(260px, 0.78fr);
+  grid-template-areas:
+    "hero allocation mood"
+    "hero allocation points"
+    "bar strip account"
+    "movers strip account";
+  grid-template-rows: auto auto auto auto;
+  align-items: stretch;
+  height: auto;
+  min-height: 0;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.portfolio-dashboard > * {
+  min-width: 0;
+  min-height: 0;
+}
+
+.portfolio-hero-card,
+.allocation-card,
+.market-mood-card,
+.dashboard-widget,
+.ai-points-card {
+  border-radius: 12px;
+  overflow: visible;
+}
+
+.portfolio-hero-card {
+  grid-area: hero;
+  gap: 14px;
+  padding: clamp(14px, 1.4vw, 20px);
+}
+
+.hero-title-row {
+  align-items: flex-start;
+}
+
+.hero-title-row h2 {
+  font-size: clamp(24px, 2.15vw, 34px);
+  line-height: 1.12;
+}
+
+#aiDataSource {
+  flex: 0 0 auto;
+  max-width: 180px;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.hero-value-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.hero-value-row div {
+  min-height: 90px;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.hero-value-row strong {
+  font-size: clamp(20px, 1.75vw, 28px);
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+
+.hero-value-row small {
+  overflow-wrap: anywhere;
+}
+
+.ai-summary {
+  max-width: none;
+  font-size: clamp(13px, 0.95vw, 15px);
+  line-height: 1.65;
+}
+
+.ai-score-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 0;
+}
+
+.ai-score-row div,
+.levels-grid div {
+  min-width: 0;
+  border-radius: 10px;
+  padding: 11px;
+}
+
+.ai-score-row strong,
+.levels-grid strong {
+  font-size: clamp(16px, 1.25vw, 20px);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.allocation-card {
+  grid-area: allocation;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.allocation-treemap {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-auto-rows: minmax(92px, auto);
+  overflow: visible;
+}
+
+.allocation-tile {
+  min-width: 0;
+  min-height: 92px;
+  border-radius: 11px;
+  padding: 8px;
+}
+
+.allocation-tile span {
+  font-size: clamp(14px, 1.5vw, 21px);
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.allocation-tile strong,
+.allocation-tile em,
+.allocation-tile small {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.allocation-tile strong {
+  font-size: 12px;
+}
+
+.allocation-tile em {
+  font-size: clamp(15px, 1.35vw, 19px);
+}
+
+.market-mood-card {
+  grid-area: mood;
+  min-height: 0;
+  padding: 16px;
+}
+
+.mood-ring {
+  width: clamp(120px, 12vw, 156px);
+  height: clamp(120px, 12vw, 156px);
+}
+
+.mood-ring strong {
+  font-size: clamp(32px, 3vw, 42px);
+}
+
+.risk-stack div {
+  gap: 12px;
+}
+
+.risk-stack span,
+.risk-stack strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.allocation-bar-card {
+  grid-area: bar;
+}
+
+.dashboard-widget:nth-of-type(5) {
+  grid-area: strip;
+}
+
+.dashboard-widget:nth-of-type(6) {
+  grid-area: movers;
+}
+
+.ai-points-card {
+  grid-area: points;
+}
+
+.analyst-overview-card {
+  grid-area: account;
+}
+
+.dashboard-widget {
+  grid-template-rows: auto auto;
+  gap: 10px;
+}
+
+.widget-head {
+  margin-bottom: 0;
+}
+
+.widget-head span,
+.mover-list span {
+  min-width: 0;
+}
+
+.widget-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  overflow: visible;
+  padding: 0;
+}
+
+.ticker-chip {
+  width: 100%;
+  min-width: 0;
+  min-height: 74px;
+  padding: 9px;
+}
+
+.ticker-chip strong,
+.ticker-chip span,
+.ticker-chip small,
+.ticker-chip em {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.allocation-bar {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 0;
+  border-radius: 10px;
+}
+
+.allocation-bar span {
+  flex: 1 1 96px;
+  width: auto !important;
+  min-height: 36px;
+  min-width: 0;
+  padding: 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.mover-list button {
+  min-height: 42px;
+  height: auto;
+  padding: 8px 10px;
+}
+
+.mover-list strong {
+  flex: 0 0 auto;
+}
+
+.levels-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.analyst-overview {
+  grid-template-columns: 1fr;
+}
+
+.analyst-overview div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid rgba(87, 199, 230, 0.16);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(8, 13, 22, 0.45);
+}
+
+.analyst-overview span {
+  color: var(--subtle);
+  font-size: 12px;
+}
+
+.analyst-overview strong {
+  color: #eaf8ff;
+  font-size: 15px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.workspace {
+  grid-template-columns: minmax(280px, 360px) minmax(420px, 1fr) minmax(300px, 360px);
+}
+
+.chart-head,
+.section-head {
+  gap: 10px;
+}
+
+.range-buttons {
+  max-width: 100%;
+}
+
+.range-buttons button {
+  white-space: nowrap;
+}
+
+.holding-main,
+.holding-numbers {
+  min-width: 0;
+}
+
+.holding-main strong,
+.holding-numbers span {
+  overflow-wrap: anywhere;
+}
+
+.news-item strong,
+.analysis-grid strong,
+.quick-stats strong,
+.insight-grid strong {
+  overflow-wrap: anywhere;
+}
+
+.portfolio-dashboard > .sr-only,
+.sr-only {
+  position: absolute;
+  width: 1px !important;
+  height: 1px !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 1320px) {
+  .portfolio-dashboard {
+    grid-template-columns: minmax(280px, 0.95fr) minmax(360px, 1.05fr);
+    grid-template-areas:
+      "hero allocation"
+      "mood allocation"
+      "points strip"
+      "bar movers"
+      "account account";
+  }
+
+  .workspace {
+    grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 980px) {
+  .portfolio-dashboard,
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .portfolio-dashboard {
+    grid-template-areas:
+      "hero"
+      "allocation"
+      "mood"
+      "points"
+      "bar"
+      "strip"
+      "movers"
+      "account";
+  }
+
+  .allocation-treemap {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .tile-large,
+  .tile-medium,
+  .tile-small {
+    grid-column: span 1;
+    grid-row: span 1;
+  }
+
+  .news-panel {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  body {
+    padding-left: 0;
+  }
+
+  .app-nav {
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    overflow: visible;
+  }
+
+  .brand-mark {
+    flex: 0 0 38px;
+    width: 38px;
+    height: 38px;
+  }
+
+  .nav-item {
+    flex: 1 1 54px;
+    min-width: 0;
+  }
+
+  .topbar {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .top-meta,
+  .status {
+    width: 100%;
+  }
+
+  .top-meta span,
+  .status {
+    justify-content: center;
+  }
+
+  .toolbar,
+  .public-dashboard .toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .portfolio-dashboard {
+    display: grid !important;
+    gap: 10px;
+  }
+
+  .portfolio-dashboard > * {
+    margin-bottom: 0;
+  }
+
+  .hero-title-row,
+  .section-head.compact,
+  .widget-head {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  #aiDataSource {
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .hero-value-row,
+  .ai-score-row,
+  .levels-grid,
+  .insight-grid,
+  .analysis-grid,
+  .quick-stats,
+  .source-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .allocation-treemap {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-auto-rows: auto;
+  }
+
+  .allocation-tile {
+    min-height: 104px;
+  }
+
+  .widget-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .range-buttons {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .range-buttons button {
+    flex: none;
+    width: 100%;
+  }
+
+  .holding-main,
+  .holding-numbers,
+  .mover-list button {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .holding-main strong,
+  .holding-numbers span:last-child,
+  .mover-list strong {
+    justify-self: start;
+    text-align: left;
+  }
+}
+
+@media (max-width: 420px) {
+  .allocation-treemap {
+    grid-template-columns: 1fr !important;
+  }
+
+  .hero-value-row div {
+    min-height: 78px;
+  }
+
+  .topbar h1 {
+    font-size: 22px;
+  }
+}

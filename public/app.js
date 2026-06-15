@@ -5,6 +5,7 @@ const state = {
   interval: "1d",
   refreshTimer: null,
   shareToken: "",
+  requiresShareToken: false,
   detailRequestId: 0,
   detailAbort: null,
   selectedClickTimer: null,
@@ -13,6 +14,10 @@ const state = {
 };
 
 const el = {
+  passwordGate: document.querySelector("#passwordGate"),
+  passwordForm: document.querySelector("#passwordForm"),
+  sharePassword: document.querySelector("#sharePassword"),
+  passwordError: document.querySelector("#passwordError"),
   apiKey: document.querySelector("#apiKey"),
   secretKey: document.querySelector("#secretKey"),
   saveKey: document.querySelector("#saveKey"),
@@ -58,6 +63,9 @@ const el = {
   aiScore: document.querySelector("#aiScore"),
   aiAction: document.querySelector("#aiAction"),
   aiTrend: document.querySelector("#aiTrend"),
+  cashValue: document.querySelector("#cashValue"),
+  investedValue: document.querySelector("#investedValue"),
+  positionCount: document.querySelector("#positionCount"),
   moodScore: document.querySelector("#moodScore"),
   moodLabel: document.querySelector("#moodLabel"),
   aiLevels: document.querySelector("#aiLevels")
@@ -106,6 +114,13 @@ async function boot() {
   initShareToken();
   const status = await loadStatus();
   applyStatus(status);
+  if (status.requiresShareToken && !state.shareToken) {
+    showPasswordGate();
+    setStatus("请输入访问密码", "idle");
+    startAutoRefresh(status.refreshMs || 5000);
+    return;
+  }
+  hidePasswordGate();
   const savedKey = sessionStorage.getItem("trading212ApiKey") || "";
   const savedSecret = sessionStorage.getItem("trading212SecretKey") || "";
   if (status.hasApiKey) {
@@ -128,7 +143,13 @@ function initShareToken() {
 }
 
 function wireEvents() {
-  el.saveKey.addEventListener("click", () => saveKey(true));
+  if (el.passwordForm) {
+    el.passwordForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await unlockDashboard();
+    });
+  }
+  if (el.saveKey) el.saveKey.addEventListener("click", () => saveKey(true));
   if (el.refreshNow) el.refreshNow.addEventListener("click", () => loadPortfolio());
   if (el.analyzeStock) el.analyzeStock.addEventListener("click", () => analyzeSearchStock());
   if (el.strategyButton) el.strategyButton.addEventListener("click", () => analyzeSearchStock(true));
@@ -181,9 +202,45 @@ async function loadStatus() {
 }
 
 function applyStatus(status) {
+  state.requiresShareToken = Boolean(status.requiresShareToken);
   document.body.classList.toggle("public-dashboard", Boolean(status.publicDashboard));
   el.modeBadge.textContent = status.publicDashboard ? "公开只读" : "本机只读";
   el.refreshBadge.textContent = `${Math.round((status.refreshMs || 5000) / 1000)} 秒更新`;
+}
+
+function showPasswordGate(message = "") {
+  document.body.classList.add("locked");
+  if (el.passwordGate) el.passwordGate.hidden = false;
+  if (el.passwordError) el.passwordError.textContent = message;
+  requestAnimationFrame(() => el.sharePassword?.focus());
+}
+
+function hidePasswordGate() {
+  document.body.classList.remove("locked");
+  if (el.passwordGate) el.passwordGate.hidden = true;
+  if (el.passwordError) el.passwordError.textContent = "";
+}
+
+async function unlockDashboard() {
+  const password = el.sharePassword?.value.trim() || "";
+  if (!password) {
+    showPasswordGate("请输入密码。");
+    return;
+  }
+
+  state.shareToken = password;
+  try {
+    setStatus("正在验证访问密码", "idle");
+    await api("/api/unlock");
+    sessionStorage.setItem("trading212ShareToken", password);
+    hidePasswordGate();
+    await loadPortfolio();
+  } catch (error) {
+    state.shareToken = "";
+    sessionStorage.removeItem("trading212ShareToken");
+    showPasswordGate(error.message || "密码不正确。");
+    setStatus("访问密码错误", "error");
+  }
 }
 
 async function saveKey(remember) {
@@ -254,6 +311,7 @@ function renderPortfolio(options = {}) {
   el.totalPercent.className = totals.gainLossPercent >= 0 ? "gain" : "loss";
   el.holdingCount.textContent = holdings.length;
   el.lastUpdated.textContent = `更新于 ${new Date(updatedAt).toLocaleString("zh-CN")}`;
+  renderPortfolioHero(holdings, totals, cash, currency, updatedAt);
   renderMarketStrip(holdings, currency);
   renderPortfolioInsights(holdings, totals, currency);
   renderPortfolioWidgets(holdings, totals, currency);
@@ -295,6 +353,51 @@ function renderPortfolio(options = {}) {
 
   if (options.preserveScroll) {
     requestAnimationFrame(() => window.scrollTo(0, options.scrollY || 0));
+  }
+}
+
+function renderPortfolioHero(holdings, totals, cash, currency, updatedAt) {
+  const cashValue = Number(cash?.free ?? cash?.totalCash ?? cash?.cash ?? cash?.result ?? cash?.blocked ?? NaN);
+  const invested = Number(totals.costBasis);
+  const topHolding = holdings
+    .slice()
+    .sort((a, b) => Number(b.marketValue || 0) - Number(a.marketValue || 0))[0];
+  const topWeight = Number(totals.marketValue) > 0 ? (Number(topHolding?.marketValue || 0) / Number(totals.marketValue)) * 100 : null;
+  const loserCount = holdings.filter((item) => Number(item.gainLoss || 0) < 0).length;
+  const gainPercent = Number(totals.gainLossPercent);
+  const dayPercent = Number(totals.dayChangePercent);
+  const healthScore = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        62 +
+          (Number.isFinite(gainPercent) ? Math.max(-18, Math.min(18, gainPercent * 0.8)) : 0) +
+          (Number.isFinite(dayPercent) ? Math.max(-8, Math.min(8, dayPercent * 2)) : 0) -
+          (Number.isFinite(topWeight) && topWeight > 45 ? 8 : 0) -
+          Math.min(10, loserCount * 1.5)
+      )
+    )
+  );
+  const healthLabel = healthScore >= 76 ? "稳健" : healthScore >= 60 ? "均衡" : healthScore >= 45 ? "观察" : "谨慎";
+
+  if (el.aiDataSource) el.aiDataSource.textContent = totals.source || "Trading 212";
+  if (el.aiReviewSummary) {
+    const updated = new Date(updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    el.aiReviewSummary.textContent = `共 ${holdings.length} 个持仓，最大持仓 ${topHolding ? displayHoldingName(topHolding) : "--"} 占 ${formatNumber(topWeight)}%。组合总盈亏 ${formatSignedPercent(gainPercent)}，今日 ${formatSignedPercent(dayPercent)}，${updated} 已同步。`;
+  }
+  if (el.cashValue) el.cashValue.textContent = formatMoney(cashValue, currency);
+  if (el.investedValue) el.investedValue.textContent = formatMoney(invested, currency);
+  if (el.positionCount) el.positionCount.textContent = `${holdings.length}`;
+  if (el.moodScore) el.moodScore.textContent = formatNumber(healthScore);
+  if (el.moodLabel) el.moodLabel.textContent = healthLabel;
+  if (el.aiLevels) {
+    el.aiLevels.innerHTML = `
+      <div><span>最大持仓</span><strong>${escapeHtml(topHolding?.yahooSymbol || topHolding?.ticker || "--")}</strong></div>
+      <div><span>最大占比</span><strong>${formatNumber(topWeight)}%</strong></div>
+      <div><span>盈利持仓</span><strong class="gain">${holdings.length - loserCount}</strong></div>
+      <div><span>亏损持仓</span><strong class="${loserCount ? "loss" : "gain"}">${loserCount}</strong></div>
+    `;
   }
 }
 
@@ -425,14 +528,18 @@ function renderPortfolioRisk(holdings, totals) {
 
 function renderAnalystOverview(holdings) {
   if (!el.analystOverview) return;
-  const selected = state.selected || holdings[0];
-  const symbol = selected?.yahooSymbol || selected?.ticker || "--";
+  const totals = state.portfolio?.totals || {};
+  const cash = state.portfolio?.cash || {};
+  const currency = totals.currencyCode || cash?.currencyCode || "GBP";
+  const sorted = holdings.slice().sort((a, b) => Number(b.marketValue || 0) - Number(a.marketValue || 0));
+  const totalValue = Number(totals.marketValue || 0);
+  const topThreeValue = sorted.slice(0, 3).reduce((sum, item) => sum + Number(item.marketValue || 0), 0);
+  const concentration = totalValue > 0 ? (topThreeValue / totalValue) * 100 : null;
   el.analystOverview.innerHTML = `
-    <a href="https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}/analysis" target="_blank" rel="noreferrer">Yahoo Finance</a>
-    <a href="https://www.marketbeat.com/stocks/NASDAQ/${encodeURIComponent(String(symbol).replace(/\..+$/, "").toUpperCase())}/price-target/" target="_blank" rel="noreferrer">MarketBeat</a>
-    <a href="https://www.tipranks.com/stocks/${encodeURIComponent(String(symbol).replace(/\..+$/, "").toLowerCase())}/forecast" target="_blank" rel="noreferrer">TipRanks</a>
-    <a href="https://www.nasdaq.com/market-activity/stocks/${encodeURIComponent(String(symbol).replace(/\..+$/, "").toLowerCase())}/analyst-research" target="_blank" rel="noreferrer">Nasdaq</a>
-    <a href="https://www.marketwatch.com/investing/stock/${encodeURIComponent(String(symbol).replace(/\..+$/, "").toLowerCase())}/analystestimates" target="_blank" rel="noreferrer">MarketWatch</a>
+    <div><span>账户总值</span><strong>${formatMoney(totals.marketValue, currency)}</strong></div>
+    <div><span>投入成本</span><strong>${formatMoney(totals.costBasis, currency)}</strong></div>
+    <div><span>前三占比</span><strong>${formatNumber(concentration)}%</strong></div>
+    <div><span>数据来源</span><strong>${escapeHtml(totals.source || "Trading 212")}</strong></div>
   `;
 }
 
@@ -496,10 +603,7 @@ async function loadSelectedDetails(holding = state.selected) {
   el.selectedName.textContent = displayHoldingName(holding);
   el.newsSymbol.textContent = holding.yahooSymbol || holding.ticker;
   if (el.aiStockInput) el.aiStockInput.value = holding.yahooSymbol || holding.ticker;
-  await Promise.allSettled([
-    loadChart(holding, requestId),
-    loadAiReview(holding, requestId)
-  ]);
+  await Promise.allSettled([loadChart(holding, requestId)]);
   scheduleAnalysis(holding.yahooSymbol || holding.ticker, requestId);
 }
 
@@ -524,6 +628,7 @@ function scheduleAnalysis(symbol, requestId) {
 }
 
 async function analyzeSearchStock(strategyOnly = false) {
+  if (!el.aiStockInput) return;
   const symbol = el.aiStockInput?.value.trim();
   if (!symbol) {
     setStatus("请输入股票代码", "error");
@@ -651,14 +756,14 @@ async function loadAiReview(holding, requestId = state.detailRequestId) {
 function setAiLoading(symbol) {
   if (!el.aiReviewTitle) return;
   el.aiReviewTitle.textContent = `${symbol} 正在分析`;
-  el.aiDataSource.textContent = "读取行情";
-  el.aiReviewSummary.textContent = "正在读取 BaoStock/行情数据，计算趋势、波动、量能和关键点位。";
-  el.aiScore.textContent = "--";
-  el.aiAction.textContent = "--";
-  el.aiTrend.textContent = "--";
-  el.moodScore.textContent = "--";
-  el.moodLabel.textContent = "计算中";
-  el.aiLevels.innerHTML = "";
+  if (el.aiDataSource) el.aiDataSource.textContent = "读取行情";
+  if (el.aiReviewSummary) el.aiReviewSummary.textContent = "正在读取 BaoStock/行情数据，计算趋势、波动、量能和关键点位。";
+  if (el.aiScore) el.aiScore.textContent = "--";
+  if (el.aiAction) el.aiAction.textContent = "--";
+  if (el.aiTrend) el.aiTrend.textContent = "--";
+  if (el.moodScore) el.moodScore.textContent = "--";
+  if (el.moodLabel) el.moodLabel.textContent = "计算中";
+  if (el.aiLevels) el.aiLevels.innerHTML = "";
 }
 
 function renderAiReview(data) {
@@ -666,17 +771,23 @@ function renderAiReview(data) {
   const levels = review.levels || {};
   const scoreClass = Number(review.score || 0) >= 60 ? "gain" : Number(review.score || 0) <= 40 ? "loss" : "";
   el.aiReviewTitle.textContent = `${data.name || data.symbol} ${formatSignedPercent(data.changePercent)}`;
-  el.aiDataSource.textContent = data.source || "公开行情";
-  el.aiReviewSummary.textContent = review.summary || "暂无完整股评。";
-  el.aiScore.textContent = formatNumber(review.score);
-  el.aiScore.className = scoreClass;
-  el.aiAction.textContent = review.action || "--";
-  el.aiAction.className = scoreClass;
-  el.aiTrend.textContent = review.trend || "--";
-  el.aiTrend.className = review.trend === "震荡偏弱" ? "loss" : review.trend === "强势多头" ? "gain" : "";
-  el.moodScore.textContent = formatNumber(review.score);
-  el.moodLabel.textContent = review.mood || "中性";
-  el.aiLevels.innerHTML = `
+  if (el.aiDataSource) el.aiDataSource.textContent = data.source || "公开行情";
+  if (el.aiReviewSummary) el.aiReviewSummary.textContent = review.summary || "暂无完整股评。";
+  if (el.aiScore) {
+    el.aiScore.textContent = formatNumber(review.score);
+    el.aiScore.className = scoreClass;
+  }
+  if (el.aiAction) {
+    el.aiAction.textContent = review.action || "--";
+    el.aiAction.className = scoreClass;
+  }
+  if (el.aiTrend) {
+    el.aiTrend.textContent = review.trend || "--";
+    el.aiTrend.className = review.trend === "震荡偏弱" ? "loss" : review.trend === "强势多头" ? "gain" : "";
+  }
+  if (el.moodScore) el.moodScore.textContent = formatNumber(review.score);
+  if (el.moodLabel) el.moodLabel.textContent = review.mood || "中性";
+  if (el.aiLevels) el.aiLevels.innerHTML = `
     <div><span>理想买入点</span><strong class="gain">${formatPlainMoney(levels.idealBuy)}</strong></div>
     <div><span>次优买入点</span><strong>${formatPlainMoney(levels.secondaryBuy)}</strong></div>
     <div><span>止损价位</span><strong class="loss">${formatPlainMoney(levels.stopLoss)}</strong></div>

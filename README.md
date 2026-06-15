@@ -33,8 +33,10 @@ npm start
 打开：
 
 ```text
-http://127.0.0.1:4312/?token=811123
+http://127.0.0.1:4312/
 ```
+
+页面会先要求输入访问密码，默认示例密码是 `811123`。
 
 ## Render 部署
 
@@ -55,9 +57,11 @@ Render 会自动提供 `PORT`，不需要手动设置。
 部署完成后分享：
 
 ```text
-https://your-service.onrender.com/?token=811123
+https://your-service.onrender.com/
 ```
+
+访问者打开网址后输入 `SHARE_TOKEN` 对应的密码即可进入。
 
 ## 安全
 
-任何拿到完整分享链接的人都能看到持仓和账户总值。想停止分享时，修改 `SHARE_TOKEN` 并重新部署。
+任何知道访问密码的人都能看到持仓和账户总值。想停止分享时，修改 `SHARE_TOKEN` 并重新部署。

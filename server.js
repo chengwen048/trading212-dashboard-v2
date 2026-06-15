@@ -875,6 +875,10 @@ const server = http.createServer(async (req, res) => {
       return json(res, 403, { error: "Missing or invalid share token." });
     }
 
+    if (req.method === "GET" && url.pathname === "/api/unlock") {
+      return json(res, 200, { ok: true });
+    }
+
     if (req.method === "POST" && url.pathname === "/api/session-key") {
       if (publicDashboard && process.env.TRADING212_API_KEY && process.env.TRADING212_SECRET_KEY) {
         return json(res, 403, { error: "Public dashboard uses server-side credentials." });
